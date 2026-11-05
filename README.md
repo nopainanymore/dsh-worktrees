@@ -16,6 +16,28 @@ DSH 自带的 Workspace 浏览器支持 **View options → Group by → Workspac
 内部，因此注册为工作区后会自动成为父工作区的子级——这就是「工作区 + worktree」两级菜单，全部复用
 官方浏览器的分组、会话列表、拖动与归档逻辑，没有替换任何现有 UI。
 
+## 安装
+
+需要一份能正常启动的 DeepSeek Harness。插件只注册侧边栏槽位和一条 `/dsh-worktrees/api` 本机路由，不替换任何官方插件。
+
+**Desktop 版**：侧边栏「插件」页 → 安装 → 填仓库地址。Desktop 的 profile 由应用自己持有，命令行 `dsh plugin --profile desktop` 会被拒绝，请用插件页操作。
+
+**Web / CLI 版**：
+
+```sh
+dsh plugin --profile web add git+https://github.com/nopainanymore/dsh-worktrees.git
+```
+
+装完确认 profile 的 `dsh.profile.bundles` 里出现 `@local/dsh-worktrees`，然后刷新页面；没有启用 HMR 时需要重启 dsh。侧边栏底部出现 Worktree 图标即安装成功。
+
+本地开发用绝对路径安装，改完重载即可：
+
+```sh
+dsh plugin --profile web add /absolute/path/to/dsh-worktrees
+```
+
+卸载：`dsh plugin --profile web remove @local/dsh-worktrees`。卸载前建议先用面板「还原默认」撤销自动注册的 worktree 工作区，避免留下悬空条目。
+
 ## 配置
 
 插件行在 `cordis.patch.yml`：
@@ -57,3 +79,7 @@ DSH 自带的 Workspace 浏览器支持 **View options → Group by → Workspac
 官方浏览器的 Workspace Tree 只按**路径包含**嵌套：只有位于仓库内部的worktree（默认的
 `.agents/worktrees/<name>`）才会在侧边栏显示为父工作区的子级。仓库外的兄弟目录（如
 `esop-server-feature-xxx`）注册后是并列的顶级工作区；它们的两级关系只体现在本面板里。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 liwang
