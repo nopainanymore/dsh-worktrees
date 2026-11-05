@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Worktrees",
+    "description": "Workspace + worktree two-level management: create a worktree, send it back, and merge its changes into the workspace."
+  }
+}

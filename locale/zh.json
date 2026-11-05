@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Worktree 管理",
+    "description": "工作区 + worktree 两级管理：创建 worktree、在其中工作，完成后合并回工作区并清理。"
+  }
+}

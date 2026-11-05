@@ -1,0 +1,6 @@
+- insert:
+    - id: worktrees
+      name: '@local/dsh-worktrees'
+      config:
+        grouping: worktree
+        registerOnCreate: true
