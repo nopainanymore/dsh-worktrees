@@ -5,79 +5,142 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const NS = 'dsh.worktrees'
     const API = '/dsh-worktrees/api'
+    const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
     const DICTS = {
       en: {
         'panel.label': 'Worktrees',
         'panel.title': 'Worktrees',
-        'panel.subtitle': 'Workspace + worktree two-level management. Finish a worktree, merge it back.',
-        'grouping.title': 'Grouping',
-        'grouping.worktree': 'Workspace + worktree',
-        'grouping.workspace': 'Workspace only',
-        'grouping.hint.worktree': 'New worktrees register as child Workspaces, so the sidebar tree shows two levels.',
-        'grouping.hint.workspace': 'Worktrees stay out of the sidebar; this panel is the only management surface.',
+        'panel.subtitle': 'Create a worktree from a workspace, work in it, then merge it back.',
+        'action.addRepo': 'Add repository',
         'action.refresh': 'Refresh',
-        'action.rollback': 'Restore default',
-        'action.rollback.confirm': 'Unregister every worktree child Workspace and reset the grouping setting?',
+        'action.refreshing': 'Refreshing…',
         'action.create': 'Create worktree',
         'action.merge': 'Merge back',
-        'action.remove': 'Remove',
-        'action.register': 'Add to sidebar',
-        'action.unregister': 'Remove from sidebar',
-        'action.open': 'Open',
-        'action.confirm': 'Confirm',
+        'action.merged': 'Merged',
+        'action.confirmMerge': 'Merge',
+        'action.remove': 'Remove worktree…',
+        'action.confirmRemove': 'Remove worktree',
         'action.cancel': 'Cancel',
-        'create.placeholder': 'worktree name',
-        'create.workspace': 'Parent workspace',
-        'empty.title': 'No worktrees yet',
-        'empty.body': 'Pick a Git workspace and create a worktree. Changes made there merge back into that workspace. If the list is empty, add a Git repository as a workspace from the sidebar first.',
+        'action.open': 'Open session',
+        'action.addToSidebar': 'Add to sidebar',
+        'action.removeFromSidebar': 'Remove from sidebar',
+        'action.startSession': 'Start a session here',
+        'action.retry': 'Try again',
+        'action.restore': 'Restore defaults…',
+        'action.confirmRestore': 'Restore defaults',
+        'action.more': 'More actions',
+        'create.workspace': 'Repository',
+        'create.name': 'Name',
+        'create.placeholder': 'feat-cap-table',
+        'create.hint': 'Letters, digits, dot, dash and underscore. Becomes the branch name.',
+        'create.error.empty': 'Enter a name.',
+        'create.error.invalid': 'Use letters, digits, dot, dash or underscore, starting with a letter or digit.',
+        'create.error.duplicate': 'A branch with this name already exists in the repository.',
+        'notice.created': 'Created {branch}.',
+        'notice.merged': 'Merged {branch} into the workspace.',
+        'notice.alreadyMerged': 'Already merged — nothing to bring over.',
+        'notice.removed': 'Removed the worktree.',
+        'notice.removedWithBranch': 'Removed the worktree and its branch.',
+        'notice.registered': 'Added to the sidebar.',
+        'notice.unregistered': 'Removed from the sidebar. Files are untouched.',
+        'notice.adopted': 'Added workspace {path}.',
+        'notice.alreadyAdopted': '{path} is already a workspace.',
+        'notice.restored': 'Restored: unregistered {count} worktree workspaces.',
+        'notice.autoOn': 'On: existing and new worktrees are added to the sidebar.',
+        'notice.autoOff': 'Off: worktrees stay out of the sidebar.',
+        'merge.title': 'Merge {branch} into {target}',
+        'merge.detail': '{ahead} commits ahead{behind}. The workspace must have no uncommitted changes.',
+        'merge.detailNothing': 'Nothing to merge — the branch is already in {target}.',
+        'remove.title': 'Remove worktree {branch}?',
+        'remove.body': 'Deletes {path}. The branch is kept unless you choose otherwise.',
+        'remove.deleteBranch': 'Also delete the branch {branch} (merged already)',
+        'remove.branchKept': 'The branch {branch} still has unmerged commits and is kept.',
+        'restore.title': 'Restore defaults?',
+        'restore.body': 'Unregisters every worktree workspace and stops adding new ones to the sidebar. Files, branches and sessions are kept.',
         'state.dirty': 'uncommitted',
         'state.merged': 'merged',
         'state.unregistered': 'not in sidebar',
-        'state.external': 'external',
-        'remove.external.hint': 'This worktree lives outside .agents/worktrees: removing it deletes that checkout directory (its branch stays).',
         'state.detached': 'detached',
         'state.ahead': '{count} ahead',
         'state.behind': '{count} behind',
-        'footer.hint': 'Settings live in ~/.dsh/worktrees/settings.json; defaults come from this plugin row in cordis.patch.yml.',
+        'state.sessions': '{count} sessions',
+        'state.sessions.one': '1 session',
+        'loading.title': 'Loading worktrees…',
+        'loading.body': 'Reading git worktree metadata and working-tree state.',
+        'empty.title': 'No worktrees yet',
+        'empty.body': 'Add a Git repository, then name a worktree to create one. Work happens in its own session, and merges back here.',
+        'repo.empty': 'No worktrees yet — name one above to create it.',
         'error.load': 'Could not load worktrees',
-        'busy': 'Working…',
+        'settings.auto': 'Add new worktrees to the sidebar automatically',
+        'settings.auto.hint': 'Shows them nested under their workspace in the sidebar tree.',
       },
       zh: {
         'panel.label': 'Worktree 管理',
-        'panel.title': 'Worktree 管理',
-        'panel.subtitle': '工作区 + worktree 两级管理，完成后合并回工作区。',
-        'grouping.title': '分组方式',
-        'grouping.worktree': '工作区 + worktree',
-        'grouping.workspace': '仅工作区',
-        'grouping.hint.worktree': '新建的 worktree 会注册为子工作区，侧边栏的工作区树自动呈现两级。',
-        'grouping.hint.workspace': 'worktree 不进入侧边栏，只在这个面板里管理。',
+        'panel.title': 'Worktree',
+        'panel.subtitle': '从工作区拉出 worktree，在里面干活，完成后合并回来。',
+        'action.addRepo': '添加仓库',
         'action.refresh': '刷新',
-        'action.rollback': '还原默认',
-        'action.rollback.confirm': '要取消所有 worktree 子工作区注册，并把分组方式还原为默认吗？',
+        'action.refreshing': '正在刷新…',
         'action.create': '创建 worktree',
         'action.merge': '合并回工作区',
-        'action.remove': '移除',
-        'action.register': '加入侧边栏',
-        'action.unregister': '移出侧边栏',
-        'action.open': '打开',
-        'action.confirm': '确认',
+        'action.merged': '已合并',
+        'action.confirmMerge': '合并',
+        'action.remove': '移除 worktree…',
+        'action.confirmRemove': '移除 worktree',
         'action.cancel': '取消',
-        'create.placeholder': 'worktree 名称',
-        'create.workspace': '父工作区',
-        'empty.title': '还没有 worktree',
-        'empty.body': '选择一个 Git 工作区并创建 worktree；其中的改动完成后可以合并回该工作区。列表为空时，先用侧边栏的“添加工作区”把一个 Git 仓库加入工作区。',
+        'action.open': '打开会话',
+        'action.addToSidebar': '加入侧边栏',
+        'action.removeFromSidebar': '移出侧边栏',
+        'action.startSession': '在这里开始会话',
+        'action.retry': '重试',
+        'action.restore': '恢复默认…',
+        'action.confirmRestore': '恢复默认',
+        'action.more': '更多操作',
+        'create.workspace': '仓库',
+        'create.name': '名称',
+        'create.placeholder': 'feat-cap-table',
+        'create.hint': '字母、数字、点、短横线、下划线；会成为分支名。',
+        'create.error.empty': '请输入名称。',
+        'create.error.invalid': '只能用字母、数字、点、短横线、下划线，并以字母或数字开头。',
+        'create.error.duplicate': '仓库里已经有同名分支了。',
+        'notice.created': '已创建 {branch}。',
+        'notice.merged': '已把 {branch} 合并回工作区。',
+        'notice.alreadyMerged': '已经合并过了，没有需要带回来的改动。',
+        'notice.removed': '已移除 worktree。',
+        'notice.removedWithBranch': '已移除 worktree 及其分支。',
+        'notice.registered': '已加入侧边栏。',
+        'notice.unregistered': '已移出侧边栏，文件保留。',
+        'notice.adopted': '已添加工作区 {path}。',
+        'notice.alreadyAdopted': '{path} 已经是工作区了。',
+        'notice.restored': '已恢复默认：注销了 {count} 个 worktree 工作区。',
+        'notice.autoOn': '已开启：现有和新建的 worktree 都会加入侧边栏。',
+        'notice.autoOff': '已关闭：worktree 不再加入侧边栏。',
+        'merge.title': '把 {branch} 合并到 {target}',
+        'merge.detail': '领先 {ahead} 个提交{behind}。主工作区必须没有未提交的改动。',
+        'merge.detailNothing': '没有需要合并的内容——分支已在 {target} 里。',
+        'remove.title': '移除 worktree {branch}？',
+        'remove.body': '会删除 {path}；分支默认保留，除非你勾选下面的选项。',
+        'remove.deleteBranch': '同时删除分支 {branch}（已合并）',
+        'remove.branchKept': '分支 {branch} 还有未合并的提交，会保留。',
+        'restore.title': '恢复默认？',
+        'restore.body': '将注销所有 worktree 工作区，并停止自动加入侧边栏。文件、分支、会话都不删除。',
         'state.dirty': '有未提交改动',
         'state.merged': '已合并',
         'state.unregistered': '未加入侧边栏',
-        'state.external': '外部 worktree',
-        'remove.external.hint': '这个 worktree 不在 .agents/worktrees 下：移除会删除该检出目录（分支保留）。',
         'state.detached': '游离 HEAD',
         'state.ahead': '领先 {count}',
         'state.behind': '落后 {count}',
-        'footer.hint': '设置保存在 ~/.dsh/worktrees/settings.json；默认值来自 cordis.patch.yml 里的本插件行。',
+        'state.sessions': '{count} 个会话',
+        'state.sessions.one': '1 个会话',
+        'loading.title': '正在加载 worktree…',
+        'loading.body': '读取 git worktree 元数据与工作区状态。',
+        'empty.title': '还没有 worktree',
+        'empty.body': '先添加一个 Git 仓库，再输入名称创建 worktree。工作在它自己的会话里进行，完成后回到这里合并。',
+        'repo.empty': '这个仓库还没有 worktree，在上方输入名称即可创建。',
         'error.load': '无法加载 worktree 列表',
-        'busy': '处理中…',
+        'settings.auto': '新建的 worktree 自动加入侧边栏',
+        'settings.auto.hint': '侧边栏的工作区树会把它们嵌在对应工作区下。',
       },
     }
 
@@ -112,6 +175,10 @@ window.__ModuleLoader__.load({
 
     const t = (key, vars) => translate(key, vars)
 
+    // Remounting the panel must not blank the list while the Host recomputes
+    // git state: paint the last snapshot immediately, then refresh in place.
+    let panelCache = null
+
     async function api(path, init) {
       const response = await fetch(API + path, {
         headers: { 'content-type': 'application/json' },
@@ -130,110 +197,295 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .dshwt-root{height:100%;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.55}
-.dshwt-inner{max-width:900px;margin:0 auto;padding:28px 28px 72px}
+.dshwt-inner{max-width:880px;margin:0 auto;padding:28px 28px 72px}
 .dshwt-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
-.dshwt-title{font-size:18px;font-weight:600;letter-spacing:.1px}
-.dshwt-sub{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px}
+.dshwt-title{margin:0;font-size:18px;font-weight:600;letter-spacing:.1px}
+.dshwt-sub{margin:4px 0 0;color:var(--dsw-alias-label-secondary);font-size:12px}
 .dshwt-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dshwt-btn{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:7px;padding:4px 10px;font-size:12px;line-height:1.5;cursor:pointer;font-family:inherit}
-.dshwt-btn:hover{border-color:var(--dsw-alias-border-l2)}
+.dshwt-btn{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:7px;padding:5px 11px;font-size:12px;line-height:1.5;cursor:pointer;font-family:inherit}
+.dshwt-btn:hover:not(:disabled){border-color:var(--dsw-alias-border-l2)}
+.dshwt-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .dshwt-btn:disabled{opacity:.45;cursor:default}
 .dshwt-btn.primary{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#fff}
 .dshwt-btn.danger{color:var(--dsw-alias-state-error-primary)}
 .dshwt-btn.ghost{background:transparent;border-color:transparent;color:var(--dsw-alias-label-secondary)}
-.dshwt-btn.ghost:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
-.dshwt-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
-.dshwt-seg button{appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit}
-.dshwt-seg button+button{border-left:1px solid var(--dsw-alias-border-l1)}
-.dshwt-seg button[data-on="true"]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:500}
-.dshwt-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:hidden;margin-bottom:14px}
-.dshwt-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}
-.dshwt-card-title{font-weight:550;font-size:13px}
-.dshwt-card-path{color:var(--dsw-alias-label-secondary);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+.dshwt-btn.ghost:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.dshwt-btn.link{background:none;border:0;padding:2px 0;color:var(--dsw-alias-label-secondary);text-decoration:underline;text-underline-offset:3px}
+.dshwt-btn.link:hover{color:var(--dsw-alias-label-primary)}
+.dshwt-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:visible;margin-bottom:14px}
+.dshwt-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2);border-radius:12px 12px 0 0}
+.dshwt-card-title{margin:0;font-weight:600;font-size:13px}
+.dshwt-card-path{color:var(--dsw-alias-label-secondary);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dshwt-list{list-style:none;margin:0;padding:0}
 .dshwt-wt{padding:12px 14px;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:8px}
-.dshwt-wt-main{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.dshwt-branch{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:600}
-.dshwt-chip{font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary)}
+.dshwt-wt-main{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.dshwt-branch{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+.dshwt-spacer{flex:1 1 auto}
+.dshwt-chip{font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .dshwt-chip.ok{color:var(--dsw-alias-state-success-primary);border-color:currentColor}
 .dshwt-chip.warn{color:var(--dsw-alias-state-warn-primary);border-color:currentColor}
-.dshwt-chip.gray{color:var(--dsw-alias-label-secondary)}
-.dshwt-input{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:7px;padding:4px 9px;font-size:12px;font-family:inherit;min-width:180px}
-.dshwt-input:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
+.dshwt-input{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:7px;padding:5px 9px;font-size:12px;font-family:inherit;min-width:180px}
+.dshwt-input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
+.dshwt-input[aria-invalid="true"]{border-color:var(--dsw-alias-state-error-primary)}
+.dshwt-field{display:flex;flex-direction:column;gap:4px;min-width:200px}
+.dshwt-field-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dshwt-field-error{font-size:11px;color:var(--dsw-alias-state-error-primary)}
+.dshwt-field-hint{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .dshwt-notice{display:flex;gap:10px;align-items:flex-start;border-radius:9px;padding:9px 12px;margin-bottom:14px;font-size:12px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}
-.dshwt-notice.ok{border-color:var(--dsw-alias-state-success-primary);color:var(--dsw-alias-state-success-primary)}
+.dshwt-notice.ok{border-color:var(--dsw-alias-state-success-primary)}
 .dshwt-notice.error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dshwt-notice ul{margin:6px 0 0;padding-left:18px;color:var(--dsw-alias-label-secondary)}
-.dshwt-empty{padding:36px 16px;text-align:center;color:var(--dsw-alias-label-secondary)}
-.dshwt-empty strong{display:block;color:var(--dsw-alias-label-primary);font-size:13px;margin-bottom:4px}
-.dshwt-hint{color:var(--dsw-alias-label-secondary);font-size:11px;margin-top:10px}
-.dshwt-col{display:flex;flex-direction:column;gap:6px}
-.dshwt-warnline{color:var(--dsw-alias-state-warn-primary);font-size:11px}
-.dshwt-split{display:flex;align-items:center;gap:8px;padding:12px 14px;flex-wrap:wrap}
+.dshwt-notice .dshwt-btn{flex:0 0 auto}
+.dshwt-empty{padding:36px 16px;text-align:center;color:var(--dsw-alias-label-secondary);display:flex;flex-direction:column;align-items:center;gap:10px}
+.dshwt-empty strong{color:var(--dsw-alias-label-primary);font-size:13px}
+.dshwt-empty p{margin:0;max-width:420px}
+.dshwt-menu-wrap{position:relative}
+.dshwt-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:190px;padding:4px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-overlay);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.dshwt-menu button{display:block;width:100%;text-align:left;appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:6px 9px;border-radius:6px;cursor:pointer}
+.dshwt-menu button:hover,.dshwt-menu button:focus-visible{background:var(--dsw-alias-bg-layer-2);outline:none}
+.dshwt-menu button.danger{color:var(--dsw-alias-state-error-primary)}
+.dshwt-confirm{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);padding:10px 14px;border-radius:0 0 12px 12px;display:flex;flex-direction:column;gap:8px}
+.dshwt-confirm p{margin:0;font-size:12px}
+.dshwt-confirm .dshwt-sub{font-size:11px}
+.dshwt-check{display:flex;align-items:center;gap:7px;font-size:12px}
+.dshwt-check input{margin:0}
+.dshwt-foot{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-top:22px;padding-top:14px;border-top:1px solid var(--dsw-alias-border-l1)}
+.dshwt-setting{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--dsw-alias-label-primary)}
+.dshwt-setting input{margin:2px 0 0}
+.dshwt-setting small{display:block;color:var(--dsw-alias-label-secondary);font-size:11px}
+.dshwt-restore{margin-top:10px}
 `
 
     function PanelIcon(props) {
       const size = props && props.size ? props.size : 18
       const active = Boolean(props && props.active)
+      const stroke = active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)'
       return h(
         'svg',
-        {
-          width: size,
-          height: size,
-          viewBox: '0 0 20 20',
-          fill: 'none',
-          'aria-hidden': true,
-          style: { display: 'block' },
-        },
-        h('path', {
-          d: 'M5.5 3.5v9.2',
-          stroke: active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          strokeWidth: 1.5,
-          strokeLinecap: 'round',
-        }),
-        h('circle', {
-          cx: 5.5,
-          cy: 3.2,
-          r: 1.7,
-          stroke: active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          strokeWidth: 1.4,
-        }),
-        h('path', {
-          d: 'M5.5 7.1h5.2c1.3 0 2.3 1 2.3 2.3v1.2',
-          stroke: active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          strokeWidth: 1.5,
-          strokeLinecap: 'round',
-        }),
-        h('circle', {
-          cx: 13,
-          cy: 14.2,
-          r: 2.2,
-          stroke: active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          strokeWidth: 1.4,
-        }),
-        h('circle', {
-          cx: 5.5,
-          cy: 14.2,
-          r: 2.2,
-          stroke: active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          strokeWidth: 1.4,
-        }),
-        h('path', {
-          d: 'M5.5 11.4v.6',
-          stroke: active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-          strokeWidth: 1.5,
-          strokeLinecap: 'round',
-        }),
+        { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', 'aria-hidden': true, style: { display: 'block' } },
+        h('path', { d: 'M5.5 3.5v9.2', stroke, strokeWidth: 1.5, strokeLinecap: 'round' }),
+        h('circle', { cx: 5.5, cy: 3.2, r: 1.7, stroke, strokeWidth: 1.4 }),
+        h('path', { d: 'M5.5 7.1h5.2c1.3 0 2.3 1 2.3 2.3v1.2', stroke, strokeWidth: 1.5, strokeLinecap: 'round' }),
+        h('circle', { cx: 13, cy: 14.2, r: 2.2, stroke, strokeWidth: 1.4 }),
+        h('circle', { cx: 5.5, cy: 14.2, r: 2.2, stroke, strokeWidth: 1.4 }),
+        h('path', { d: 'M5.5 11.4v.6', stroke, strokeWidth: 1.5, strokeLinecap: 'round' }),
       )
     }
 
     function createPanel(ctx) {
+      /** Overflow menu for one row: one trigger, keyboard dismissable. */
+      function RowMenu(props) {
+        const [open, setOpen] = React.useState(false)
+        const wrapRef = React.useRef(null)
+        const triggerRef = React.useRef(null)
+        const menuRef = React.useRef(null)
+
+        React.useEffect(() => {
+          if (!open) return undefined
+          const onPointer = (event) => {
+            if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false)
+          }
+          const onKey = (event) => {
+            if (event.key === 'Escape') {
+              setOpen(false)
+              if (triggerRef.current) triggerRef.current.focus()
+            }
+          }
+          document.addEventListener('mousedown', onPointer)
+          document.addEventListener('keydown', onKey)
+          const first = menuRef.current && menuRef.current.querySelector('button')
+          if (first) first.focus()
+          return () => {
+            document.removeEventListener('mousedown', onPointer)
+            document.removeEventListener('keydown', onKey)
+          }
+        }, [open])
+
+        return h(
+          'div',
+          { className: 'dshwt-menu-wrap', ref: wrapRef },
+          h(
+            'button',
+            {
+              ref: triggerRef,
+              className: 'dshwt-btn',
+              'aria-haspopup': 'menu',
+              'aria-expanded': open,
+              'aria-label': t('action.more'),
+              disabled: props.disabled,
+              onClick: () => setOpen((value) => !value),
+            },
+            '⋯',
+          ),
+          open
+            ? h(
+                'div',
+                { className: 'dshwt-menu', role: 'menu', ref: menuRef },
+                props.items.map((item) =>
+                  h(
+                    'button',
+                    {
+                      key: item.id,
+                      role: 'menuitem',
+                      className: item.danger ? 'danger' : undefined,
+                      onClick: () => {
+                        setOpen(false)
+                        item.onSelect()
+                      },
+                    },
+                    item.label,
+                  ),
+                ),
+              )
+            : null,
+        )
+      }
+
+      function WorktreeRow(props) {
+        const { repo, worktree, busy, run, notify, openWorkspace } = props
+        const [confirm, setConfirm] = React.useState(null)
+        const [deleteBranch, setDeleteBranch] = React.useState(false)
+        const confirmRef = React.useRef(null)
+
+        React.useEffect(() => {
+          if (!confirm || !confirmRef.current) return
+          const target = confirm === 'remove'
+            ? confirmRef.current.querySelector('[data-cancel]')
+            : confirmRef.current.querySelector('[data-primary]')
+          if (target) target.focus()
+        }, [confirm])
+
+        const target = repo.branch ? `${repo.title} · ${repo.branch}` : repo.title
+        const canMerge = Boolean(worktree.branch) && !worktree.merged
+
+        const items = []
+        if (worktree.workspaceId) {
+          items.push({ id: 'open', label: t('action.open'), onSelect: () => openWorkspace(worktree.workspaceId) })
+          items.push({ id: 'unregister', label: t('action.removeFromSidebar'), onSelect: () => unregister() })
+        } else {
+          items.push({ id: 'register', label: t('action.addToSidebar'), onSelect: () => register() })
+        }
+        items.push({ id: 'remove', label: t('action.remove'), danger: true, onSelect: () => { setDeleteBranch(false); setConfirm('remove') } })
+
+        async function merge() {
+          const result = await run('/merge', { path: worktree.path })
+          setConfirm(null)
+          if (result) {
+            notify({
+              kind: 'ok',
+              text: result.alreadyMerged ? t('notice.alreadyMerged') : t('notice.merged', { branch: worktree.branch }),
+            })
+          }
+        }
+
+        async function remove() {
+          const result = await run('/remove', { path: worktree.path, deleteBranch })
+          setConfirm(null)
+          if (result) notify({ kind: 'ok', text: result.branchDeleted ? t('notice.removedWithBranch') : t('notice.removed') })
+        }
+
+        async function register() {
+          const result = await run('/register', { path: worktree.path })
+          if (result) notify({ kind: 'ok', text: t('notice.registered') })
+        }
+
+        async function unregister() {
+          const result = await run('/unregister', { path: worktree.path })
+          if (result) notify({ kind: 'ok', text: t('notice.unregistered') })
+        }
+
+        const chips = []
+        if (worktree.sessionCount > 0) {
+          chips.push(
+            h('span', { key: 'sessions', className: 'dshwt-chip' }, worktree.sessionCount === 1 ? t('state.sessions.one') : t('state.sessions', { count: worktree.sessionCount })),
+          )
+        }
+        if (worktree.dirty > 0) chips.push(h('span', { key: 'dirty', className: 'dshwt-chip warn' }, t('state.dirty')))
+        if (worktree.ahead > 0) chips.push(h('span', { key: 'ahead', className: 'dshwt-chip' }, t('state.ahead', { count: worktree.ahead })))
+        if (worktree.behind > 0) chips.push(h('span', { key: 'behind', className: 'dshwt-chip' }, t('state.behind', { count: worktree.behind })))
+        if (worktree.merged) chips.push(h('span', { key: 'merged', className: 'dshwt-chip ok' }, t('state.merged')))
+        if (!worktree.workspaceId) chips.push(h('span', { key: 'unregistered', className: 'dshwt-chip' }, t('state.unregistered')))
+        if (!worktree.branch) chips.push(h('span', { key: 'detached', className: 'dshwt-chip' }, t('state.detached')))
+
+        return h(
+          'li',
+          { className: 'dshwt-wt' },
+          h(
+            'div',
+            { className: 'dshwt-wt-main' },
+            h('span', { className: 'dshwt-branch', title: worktree.path }, worktree.branch || 'detached'),
+            chips,
+            h('span', { className: 'dshwt-spacer' }),
+            h(
+              'button',
+              {
+                className: canMerge ? 'dshwt-btn' : 'dshwt-btn ghost',
+                disabled: busy || !worktree.branch || worktree.merged,
+                onClick: () => setConfirm('merge'),
+              },
+              worktree.merged ? t('action.merged') : t('action.merge'),
+            ),
+            h(RowMenu, { items, disabled: busy }),
+          ),
+          confirm === 'merge'
+            ? h(
+                'div',
+                { className: 'dshwt-confirm', ref: confirmRef, role: 'group', 'aria-label': t('merge.title', { branch: worktree.branch, target }) },
+                h('p', null, t('merge.title', { branch: worktree.branch, target })),
+                h(
+                  'p',
+                  { className: 'dshwt-sub' },
+                  worktree.merged
+                    ? t('merge.detailNothing', { target })
+                    : t('merge.detail', {
+                        ahead: worktree.ahead,
+                        behind: worktree.behind > 0 ? t('state.behind', { count: worktree.behind }) : '',
+                      }),
+                ),
+                h(
+                  'div',
+                  { className: 'dshwt-row' },
+                  h('button', { className: 'dshwt-btn primary', 'data-primary': true, disabled: busy || worktree.merged, onClick: merge }, t('action.confirmMerge')),
+                  h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
+                ),
+              )
+            : null,
+          confirm === 'remove'
+            ? h(
+                'div',
+                { className: 'dshwt-confirm', ref: confirmRef, role: 'group', 'aria-label': t('remove.title', { branch: worktree.branch }) },
+                h('p', null, t('remove.title', { branch: worktree.branch || worktree.path })),
+                h('p', { className: 'dshwt-sub' }, t('remove.body', { path: worktree.path })),
+                worktree.merged && worktree.branch
+                  ? h(
+                      'label',
+                      { className: 'dshwt-check' },
+                      h('input', { type: 'checkbox', checked: deleteBranch, onChange: (event) => setDeleteBranch(event.target.checked) }),
+                      t('remove.deleteBranch', { branch: worktree.branch }),
+                    )
+                  : worktree.branch
+                    ? h('p', { className: 'dshwt-sub' }, t('remove.branchKept', { branch: worktree.branch }))
+                    : null,
+                h(
+                  'div',
+                  { className: 'dshwt-row' },
+                  h('button', { className: 'dshwt-btn danger', disabled: busy, onClick: remove }, t('action.confirmRemove')),
+                  h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
+                ),
+              )
+            : null,
+        )
+      }
+
       return function WorktreesPanel() {
-        const [data, setData] = React.useState(null)
+        const [data, setData] = React.useState(panelCache)
+        const [loading, setLoading] = React.useState(panelCache === null)
         const [error, setError] = React.useState(null)
         const [busy, setBusy] = React.useState(false)
         const [notice, setNotice] = React.useState(null)
-        const [confirm, setConfirm] = React.useState(null)
+        const [restoring, setRestoring] = React.useState(false)
         const [name, setName] = React.useState('')
+        const [touched, setTouched] = React.useState(false)
         const [parent, setParent] = React.useState('')
         const [, forceRender] = React.useReducer((value) => value + 1, 0)
 
@@ -244,9 +496,17 @@ window.__ModuleLoader__.load({
           }
         }, [])
 
+        React.useEffect(() => {
+          if (!notice || notice.kind !== 'ok') return undefined
+          const timer = setTimeout(() => setNotice(null), 6000)
+          return () => clearTimeout(timer)
+        }, [notice])
+
         const reload = React.useCallback(async () => {
+          setLoading(true)
           try {
             const next = await api('/tree')
+            panelCache = next
             setData(next)
             setError(null)
             setParent((current) => {
@@ -255,6 +515,8 @@ window.__ModuleLoader__.load({
             })
           } catch (problem) {
             setError(problem.message || String(problem))
+          } finally {
+            setLoading(false)
           }
         }, [])
 
@@ -262,10 +524,11 @@ window.__ModuleLoader__.load({
           reload()
         }, [reload])
 
+        const notify = React.useCallback((next) => setNotice(next), [])
+
         const run = React.useCallback(
-          async (path, body, okText) => {
+          async (path, body) => {
             setBusy(true)
-            setNotice(null)
             try {
               const result = await api(path, { method: 'POST', body: JSON.stringify(body) })
               if (result && result.ok === false) {
@@ -274,8 +537,7 @@ window.__ModuleLoader__.load({
                   text: result.message || t('error.load'),
                   files: result.files || result.conflicts || [],
                 })
-              } else {
-                setNotice({ kind: 'ok', text: typeof okText === 'function' ? okText(result) : okText })
+                return null
               }
               await reload()
               return result
@@ -284,29 +546,24 @@ window.__ModuleLoader__.load({
               return null
             } finally {
               setBusy(false)
-              setConfirm(null)
             }
           },
           [reload],
         )
 
-        const grouping = data && data.settings ? data.settings.grouping : 'worktree'
         const repos = data ? data.repos : []
+        const grouped = data && data.settings ? data.settings.grouping === 'worktree' : true
 
-        function create() {
-          if (!parent || !name.trim()) return
-          run('/create', { workspaceId: parent, name: name.trim() }, (result) => {
-            setName('')
-            return result.workspaceId
-              ? `已创建 ${result.branch}，并已注册为子工作区`
-              : `已创建 ${result.branch}`
-          })
+        function nameError(value) {
+          const trimmed = value.trim()
+          if (!trimmed) return t('create.error.empty')
+          if (!NAME_PATTERN.test(trimmed)) return t('create.error.invalid')
+          const repo = repos.find((candidate) => candidate.id === parent)
+          if (repo && repo.worktrees.some((worktree) => worktree.branch === trimmed)) return t('create.error.duplicate')
+          return null
         }
 
-        function switchGrouping(next) {
-          if (next === grouping) return
-          run('/settings', { grouping: next }, next === 'worktree' ? '已切换为 工作区 + worktree 两级' : '已切换为仅工作区')
-        }
+        const currentError = name.trim() ? nameError(name) : touched ? t('create.error.empty') : null
 
         function openWorkspace(workspaceId) {
           if (!workspaceId) return
@@ -315,225 +572,258 @@ window.__ModuleLoader__.load({
           }
         }
 
-        function chips(worktree) {
-          const items = []
-          if (worktree.dirty > 0) items.push(h('span', { key: 'dirty', className: 'dshwt-chip warn' }, t('state.dirty')))
-          if (worktree.ahead > 0) items.push(h('span', { key: 'ahead', className: 'dshwt-chip gray' }, t('state.ahead', { count: worktree.ahead })))
-          if (worktree.behind > 0) items.push(h('span', { key: 'behind', className: 'dshwt-chip gray' }, t('state.behind', { count: worktree.behind })))
-          if (worktree.merged) items.push(h('span', { key: 'merged', className: 'dshwt-chip ok' }, t('state.merged')))
-          if (!worktree.workspaceId) items.push(h('span', { key: 'unregistered', className: 'dshwt-chip gray' }, t('state.unregistered')))
-          if (!worktree.branch) items.push(h('span', { key: 'detached', className: 'dshwt-chip gray' }, t('state.detached')))
-          return items
+        async function create() {
+          setTouched(true)
+          const problem = nameError(name)
+          if (problem) return
+          const result = await run('/create', { workspaceId: parent, name: name.trim() })
+          if (!result) return
+          setName('')
+          setTouched(false)
+          notify({
+            kind: 'ok',
+            text: t('notice.created', { branch: result.branch }),
+            action: result.workspaceId
+              ? { label: t('action.startSession'), onClick: () => openWorkspace(result.workspaceId) }
+              : null,
+          })
         }
 
-        function rowActions(repo, worktree) {
-          const key = worktree.path
-          const keyed = confirm && confirm.key === key ? confirm.kind : null
-          if (keyed === 'merge') {
-            return h(
-              'div',
-              { className: 'dshwt-row' },
-              h('button', { className: 'dshwt-btn primary', disabled: busy, onClick: () => run('/merge', { path: worktree.path }, '已合并回工作区') }, t('action.confirm')),
-              h('button', { className: 'dshwt-btn ghost', onClick: () => setConfirm(null) }, t('action.cancel')),
-            )
+        async function addRepository() {
+          let path
+          try {
+            path = await ctx.uiWorkspace.pickDirectory()
+          } catch (problem) {
+            setNotice({ kind: 'error', text: problem.message || String(problem) })
+            return
           }
-          if (keyed === 'remove') {
-            return h(
-              'div',
-              { className: 'dshwt-col' },
-              worktree.inPool
-                ? null
-                : h('div', { className: 'dshwt-warnline' }, t('remove.external.hint')),
-              h(
-                'div',
-                { className: 'dshwt-row' },
-                h('button', { className: 'dshwt-btn danger', disabled: busy, onClick: () => run('/remove', { path: worktree.path, deleteBranch: worktree.merged }, (result) => (result.branchDeleted ? '已移除 worktree 与分支' : '已移除 worktree')) }, t('action.confirm')),
-                h('button', { className: 'dshwt-btn ghost', onClick: () => setConfirm(null) }, t('action.cancel')),
-              ),
-            )
-          }
-          return h(
-            'div',
-            { className: 'dshwt-row' },
-            worktree.workspaceId
-              ? h('button', { className: 'dshwt-btn', disabled: busy || !worktree.branch, onClick: () => setConfirm({ key, kind: 'merge' }) }, t('action.merge'))
-              : h('button', { className: 'dshwt-btn', disabled: busy, onClick: () => run('/register', { path: worktree.path }, '已加入侧边栏') }, t('action.register')),
-            h('button', { className: 'dshwt-btn danger', disabled: busy, onClick: () => setConfirm({ key, kind: 'remove' }) }, t('action.remove')),
-            worktree.workspaceId
-              ? h('button', { className: 'dshwt-btn ghost', disabled: busy, onClick: () => openWorkspace(worktree.workspaceId) }, t('action.open'))
-              : null,
-            worktree.workspaceId
-              ? h('button', { className: 'dshwt-btn ghost', disabled: busy, onClick: () => run('/unregister', { path: worktree.path }, '已从侧边栏移除，文件保留') }, t('action.unregister'))
-              : null,
-          )
+          if (!path) return
+          const result = await run('/adopt', { path })
+          if (!result) return
+          if (result.workspaceId) setParent(result.workspaceId)
+          notify({
+            kind: 'ok',
+            text: result.created ? t('notice.adopted', { path: result.path }) : t('notice.alreadyAdopted', { path: result.path }),
+          })
+        }
+
+        async function setAutoAdd(enabled) {
+          const result = await run('/settings', { grouping: enabled ? 'worktree' : 'workspace' })
+          if (result) notify({ kind: 'ok', text: enabled ? t('notice.autoOn') : t('notice.autoOff') })
+        }
+
+        async function restore() {
+          const result = await run('/rollback', {})
+          setRestoring(false)
+          if (result) notify({ kind: 'ok', text: t('notice.restored', { count: result.removed.length }) })
         }
 
         const body = []
 
         if (error) {
           body.push(
-            h('div', { key: 'error', className: 'dshwt-notice error' }, h('div', null, `${t('error.load')}: ${error}`)),
-          )
-        }
-        if (confirm && confirm.kind === 'rollback') {
-          body.push(
             h(
               'div',
-              { key: 'rollback-confirm', className: 'dshwt-notice' },
-              h('div', { style: { flex: '1' } }, t('action.rollback.confirm')),
-              h(
-                'div',
-                { className: 'dshwt-row' },
-                h(
-                  'button',
-                  {
-                    className: 'dshwt-btn danger',
-                    disabled: busy,
-                    onClick: () => run('/rollback', {}, (result) => `已还原：取消注册 ${result.removed.length} 个 worktree 子工作区`),
-                  },
-                  t('action.confirm'),
-                ),
-                h('button', { className: 'dshwt-btn ghost', onClick: () => setConfirm(null) }, t('action.cancel')),
-              ),
+              { key: 'error', className: 'dshwt-notice error', role: 'alert' },
+              h('div', { style: { flex: '1' } }, `${t('error.load')}: ${error}`),
+              h('button', { className: 'dshwt-btn', onClick: reload }, t('action.retry')),
             ),
           )
         }
+
         if (notice) {
           body.push(
             h(
               'div',
-              { key: 'notice', className: `dshwt-notice ${notice.kind}` },
+              { key: 'notice', className: `dshwt-notice ${notice.kind}`, role: notice.kind === 'error' ? 'alert' : 'status' },
               h(
                 'div',
-                null,
+                { style: { flex: '1' } },
                 notice.text,
                 notice.files && notice.files.length
                   ? h('ul', null, notice.files.slice(0, 12).map((file) => h('li', { key: file }, file)))
                   : null,
               ),
+              notice.action
+                ? h('button', { className: 'dshwt-btn', onClick: notice.action.onClick }, notice.action.label)
+                : null,
             ),
           )
         }
 
-        body.push(
-          h(
-            'div',
-            { key: 'create', className: 'dshwt-card' },
+        if (data && repos.length > 0) {
+          body.push(
             h(
               'div',
-              { className: 'dshwt-split' },
-              h('span', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12 } }, t('create.workspace')),
+              { key: 'create', className: 'dshwt-card' },
               h(
-                'select',
-                {
-                  className: 'dshwt-input',
-                  value: parent,
-                  disabled: busy || repos.length === 0,
-                  onChange: (event) => setParent(event.target.value),
-                },
-                repos.map((repo) => h('option', { key: repo.id, value: repo.id }, `${repo.title}`)),
+                'div',
+                { className: 'dshwt-row', style: { padding: '12px 14px', alignItems: 'flex-end' } },
+                h(
+                  'label',
+                  { className: 'dshwt-field' },
+                  h('span', { className: 'dshwt-field-label' }, t('create.workspace')),
+                  h(
+                    'select',
+                    {
+                      className: 'dshwt-input',
+                      value: parent,
+                      disabled: busy || repos.length === 0,
+                      onChange: (event) => setParent(event.target.value),
+                    },
+                    repos.map((repo) => h('option', { key: repo.id, value: repo.id }, `${repo.title} — ${repo.path}`)),
+                  ),
+                ),
+                h(
+                  'label',
+                  { className: 'dshwt-field' },
+                  h('span', { className: 'dshwt-field-label' }, t('create.name')),
+                  h('input', {
+                    className: 'dshwt-input',
+                    placeholder: t('create.placeholder'),
+                    value: name,
+                    disabled: busy,
+                    'aria-invalid': currentError ? 'true' : 'false',
+                    'aria-describedby': 'dshwt-name-help',
+                    onChange: (event) => setName(event.target.value),
+                    onBlur: () => setTouched(true),
+                    onKeyDown: (event) => {
+                      if (event.key === 'Enter') create()
+                    },
+                  }),
+                  h(
+                    'span',
+                    { id: 'dshwt-name-help', className: currentError ? 'dshwt-field-error' : 'dshwt-field-hint' },
+                    currentError || t('create.hint'),
+                  ),
+                ),
+                h('button', { className: 'dshwt-btn primary', disabled: busy || !parent || !name.trim() || Boolean(nameError(name)), onClick: create }, t('action.create')),
               ),
-              h('input', {
-                className: 'dshwt-input',
-                placeholder: t('create.placeholder'),
-                value: name,
-                disabled: busy,
-                onChange: (event) => setName(event.target.value),
-                onKeyDown: (event) => {
-                  if (event.key === 'Enter') create()
-                },
-              }),
-              h('button', { className: 'dshwt-btn primary', disabled: busy || !parent || !name.trim(), onClick: create }, t('action.create')),
             ),
-          ),
-        )
-
-        if (grouping === 'workspace') {
-          body.push(h('div', { key: 'ghint', className: 'dshwt-hint' }, t('grouping.hint.workspace')))
+          )
         }
 
-        if (repos.length === 0) {
+        if (!data) {
+          body.push(
+            h(
+              'div',
+              { key: 'loading', className: 'dshwt-empty', role: 'status' },
+              h('strong', null, t('loading.title')),
+              h('p', null, t('loading.body')),
+            ),
+          )
+        } else if (repos.length === 0) {
           body.push(
             h(
               'div',
               { key: 'empty', className: 'dshwt-empty' },
               h('strong', null, t('empty.title')),
-              h('div', null, t('empty.body')),
+              h('p', null, t('empty.body')),
+              h('button', { className: 'dshwt-btn primary', disabled: busy, onClick: addRepository }, t('action.addRepo')),
             ),
           )
-        }
-
-        for (const repo of repos) {
-          body.push(
-            h(
-              'section',
-              { key: repo.id, className: 'dshwt-card' },
+        } else {
+          for (const repo of repos) {
+            body.push(
               h(
-                'div',
-                { className: 'dshwt-card-head' },
+                'section',
+                { key: repo.id, className: 'dshwt-card' },
                 h(
                   'div',
-                  null,
-                  h('div', { className: 'dshwt-card-title' }, repo.title),
-                  h('div', { className: 'dshwt-card-path' }, repo.path),
-                ),
-                h('span', { className: 'dshwt-chip gray' }, `${repo.worktrees.length} worktree`),
-              ),
-              repo.worktrees.map((worktree) =>
-                h(
-                  'div',
-                  { key: worktree.path, className: 'dshwt-wt' },
+                  { className: 'dshwt-card-head' },
                   h(
                     'div',
-                    { className: 'dshwt-wt-main' },
-                    h('span', { className: 'dshwt-branch' }, worktree.branch || 'detached'),
-                    h('span', { className: 'dshwt-card-path' }, worktree.path),
-                    chips(worktree),
+                    { style: { minWidth: 0 } },
+                    h('h2', { className: 'dshwt-card-title' }, repo.title),
+                    h('div', { className: 'dshwt-card-path', title: repo.path }, repo.path),
                   ),
-                  rowActions(repo, worktree),
+                  h('span', { className: 'dshwt-chip' }, `${repo.worktrees.length} worktree`),
+                ),
+                h(
+                  'ul',
+                  { className: 'dshwt-list' },
+                  repo.worktrees.length === 0
+                    ? h('li', { className: 'dshwt-wt' }, h('div', { className: 'dshwt-card-path' }, t('repo.empty')))
+                    : repo.worktrees.map((worktree) =>
+                        h(WorktreeRow, {
+                          key: worktree.path,
+                          repo,
+                          worktree,
+                          busy,
+                          run,
+                          notify,
+                          openWorkspace,
+                        }),
+                      ),
                 ),
               ),
-            ),
-          )
+            )
+          }
         }
 
-        body.push(h('div', { key: 'hint', className: 'dshwt-hint' }, t('footer.hint')))
+        body.push(
+          h(
+            'div',
+            { key: 'foot', className: 'dshwt-foot' },
+            h(
+              'div',
+              null,
+              h(
+                'label',
+                { className: 'dshwt-setting' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: grouped,
+                  disabled: busy,
+                  onChange: (event) => setAutoAdd(event.target.checked),
+                }),
+                h('span', null, t('settings.auto'), h('small', null, t('settings.auto.hint'))),
+              ),
+              h(
+                'div',
+                { className: 'dshwt-restore' },
+                h('button', { className: 'dshwt-btn link', disabled: busy, onClick: () => setRestoring(true) }, t('action.restore')),
+                restoring
+                  ? h(
+                      'div',
+                      { className: 'dshwt-confirm', role: 'group', 'aria-label': t('restore.title') },
+                      h('p', null, t('restore.title')),
+                      h('p', { className: 'dshwt-sub' }, t('restore.body')),
+                      h(
+                        'div',
+                        { className: 'dshwt-row' },
+                        h('button', { className: 'dshwt-btn danger', disabled: busy, onClick: restore }, t('action.confirmRestore')),
+                        h('button', { className: 'dshwt-btn ghost', onClick: () => setRestoring(false) }, t('action.cancel')),
+                      ),
+                    )
+                  : null,
+              ),
+            ),
+          ),
+        )
 
         return h(
           'div',
-          { className: 'dshwt-root' },
+          { className: 'dshwt-root', 'aria-busy': loading },
           h('style', null, CSS),
           h(
             'div',
             { className: 'dshwt-inner' },
             h(
-              'div',
+              'header',
               { className: 'dshwt-head' },
               h(
                 'div',
                 null,
-                h('div', { className: 'dshwt-title' }, t('panel.title')),
-                h('div', { className: 'dshwt-sub' }, t('panel.subtitle')),
+                h('h1', { className: 'dshwt-title' }, t('panel.title')),
+                h('p', { className: 'dshwt-sub' }, t('panel.subtitle')),
               ),
               h(
                 'div',
                 { className: 'dshwt-row' },
-                h(
-                  'div',
-                  { className: 'dshwt-seg', role: 'group', 'aria-label': t('grouping.title') },
-                  h('button', { 'data-on': grouping === 'worktree', disabled: busy, onClick: () => switchGrouping('worktree') }, t('grouping.worktree')),
-                  h('button', { 'data-on': grouping === 'workspace', disabled: busy, onClick: () => switchGrouping('workspace') }, t('grouping.workspace')),
-                ),
-                h('button', { className: 'dshwt-btn', disabled: busy, onClick: reload }, t('action.refresh')),
-                h(
-                  'button',
-                  {
-                    className: 'dshwt-btn ghost',
-                    disabled: busy,
-                    onClick: () => setConfirm({ key: '__rollback__', kind: 'rollback' }),
-                  },
-                  t('action.rollback'),
-                ),
+                loading && data ? h('span', { className: 'dshwt-chip', role: 'status' }, t('action.refreshing')) : null,
+                h('button', { className: 'dshwt-btn', disabled: busy, onClick: addRepository }, t('action.addRepo')),
+                h('button', { className: 'dshwt-btn ghost', disabled: busy, onClick: reload }, t('action.refresh')),
               ),
             ),
             body,
@@ -549,20 +839,10 @@ window.__ModuleLoader__.load({
         ctx.effect(() => bindLocale(ctx), 'worktrees: dictionaries')
 
         ctx.slots.inject('sidebar.panellist', () =>
-          ctx.slots.register(
-            {
-              name: 'sidebar.panellist',
-              id: 'worktrees',
-              order: 20,
-              label: () => t('panel.label'),
-            },
-            PanelIcon,
-          ),
+          ctx.slots.register({ name: 'sidebar.panellist', id: 'worktrees', order: 20, label: () => t('panel.label') }, PanelIcon),
         )
 
-        ctx.slots.inject('main', () =>
-          ctx.slots.register({ name: 'main', key: 'worktrees' }, Panel),
-        )
+        ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'worktrees' }, Panel))
       },
     }
   },

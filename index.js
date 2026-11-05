@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { basename, join, sep } from 'node:path'
 
 const API_PREFIX = '/dsh-worktrees/api'
 const POOL_DIR = '.agents/worktrees'
@@ -165,10 +165,32 @@ async function aheadBehind(root, branch) {
   try {
     const { stdout } = await git(root, ['rev-list', '--left-right', '--count', `HEAD...${branch}`])
     const [behind, ahead] = stdout.trim().split(/\s+/).map((value) => Number(value))
-    return { behind: Number.isFinite(behind) ? behind : 0, ahead: Number.isFinite(ahead) ? ahead : 0 }
+    if (!Number.isFinite(behind) || !Number.isFinite(ahead)) return null
+    return { behind, ahead }
   } catch {
-    return { behind: 0, ahead: 0 }
+    return null
   }
+}
+
+/**
+ * Run an async task over items with a bounded number of in-flight operations.
+ * Git work on one repository is mostly process spawn plus a working-tree scan,
+ * so a small pool converts the serial total into a couple of waves without
+ * flooding the machine.
+ */
+async function mapLimit(items, limit, task) {
+  const results = new Array(items.length)
+  let next = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = next
+      next += 1
+      if (index >= items.length) return
+      results[index] = await task(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return results
 }
 
 async function isAncestor(root, branch) {
@@ -199,6 +221,8 @@ export function apply(ctx, config) {
   const settingsPath = join(settingsDir, 'settings.json')
 
   let settingsCache
+  let treeCache = { at: 0, value: null }
+  const TREE_TTL_MS = 8000
 
   async function settings() {
     if (settingsCache) return settingsCache
@@ -215,6 +239,7 @@ export function apply(ctx, config) {
   async function writeSettings(patch) {
     const next = { ...(await settings()), ...pickSettings(patch) }
     settingsCache = next
+    invalidateTree()
     await mkdir(settingsDir, { recursive: true })
     await writeFile(settingsPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
     return next
@@ -286,57 +311,88 @@ export function apply(ctx, config) {
     return (await registeredWorktrees()).filter((item) => isManagedPath(item.path))
   }
 
+  /**
+   * One subprocess-free probe replaces the two git calls that used to decide
+   * whether a registered Workspace is the root of a checkout. A main checkout
+   * has a `.git` directory; a linked worktree's `.git` is a file, and a plain
+   * subdirectory has none at all.
+   */
+  async function isMainCheckout(path) {
+    try {
+      return (await stat(join(path, '.git'))).isDirectory()
+    } catch {
+      return false
+    }
+  }
+
   async function listRepo(workspace) {
-    const info = await mainRootOf(workspace.path)
-    if (!info || info.linked) return null
-    const root = info.self
-    const worktrees = []
-    for (const entry of info.entries.slice(1)) {
+    if (!(await isMainCheckout(workspace.path))) return null
+    const { stdout } = await git(workspace.path, ['worktree', 'list', '--porcelain'])
+    const entries = parseWorktreeList(stdout)
+    const root = workspace.path
+    const registered = registeredWorkspaces()
+    const worktrees = await mapLimit(entries.slice(1), 8, async (entry) => {
       const path = await canonical(entry.path)
-      const [{ ahead, behind }, dirty, merged, workspaceId] = await Promise.all([
-        entry.branch ? aheadBehind(root, entry.branch) : Promise.resolve({ ahead: 0, behind: 0 }),
+      const [counts, dirty] = await Promise.all([
+        entry.branch ? aheadBehind(root, entry.branch) : Promise.resolve(null),
         dirtyStatus(path),
-        entry.branch ? isAncestor(root, entry.branch) : Promise.resolve(false),
-        workspaceIdForPath(path),
       ])
-      worktrees.push({
+      const child = registered.find((candidate) => candidate.path === path)
+      return {
         path,
         branch: entry.branch,
         head: entry.head ?? null,
-        ahead,
-        behind,
+        ahead: counts ? counts.ahead : 0,
+        behind: counts ? counts.behind : 0,
         dirty: dirty.count,
         dirtyFiles: dirty.files,
-        merged,
-        workspaceId,
+        // `ahead === 0` already means every commit of the branch is reachable
+        // from HEAD, so the extra `merge-base --is-ancestor` call is redundant.
+        merged: counts ? counts.ahead === 0 : false,
+        workspaceId: child ? child.id : null,
+        sessionCount: child ? child.sessionIds.length : 0,
         managed: isManagedPath(path),
         inPool: isManagedPath(path),
-      })
-    }
-    if (worktrees.length === 0) return null
+      }
+    })
     return {
       id: workspace.id,
       title: workspace.title,
       path: root,
+      // The main checkout's current branch is the merge target, so the panel
+      // can name it instead of saying "the workspace".
+      branch: entries[0].branch ?? null,
       worktrees,
     }
   }
 
-  async function buildTree() {
+  async function buildTreeUncached() {
     const seen = new Set()
     const repos = []
     for (const workspace of registeredWorkspaces()) {
       if (seen.has(workspace.path)) continue
       seen.add(workspace.path)
-      if (!(await isDirectory(workspace.path))) continue
-      try {
-        const repo = await listRepo(workspace)
-        if (repo) repos.push(repo)
-      } catch {
-        // a broken repository must not hide the rest of the list
-      }
+      repos.push(workspace)
     }
-    return { repos, settings: await settings(), poolDir: POOL_DIR }
+    const listed = await mapLimit(repos, 4, async (workspace) => {
+      try {
+        return await listRepo(workspace)
+      } catch {
+        return null
+      }
+    })
+    return { repos: listed.filter(Boolean), settings: await settings(), poolDir: POOL_DIR }
+  }
+
+  async function buildTree() {
+    if (treeCache.value && Date.now() - treeCache.at < TREE_TTL_MS) return treeCache.value
+    const value = await buildTreeUncached()
+    treeCache = { at: Date.now(), value }
+    return value
+  }
+
+  function invalidateTree() {
+    treeCache = { at: 0, value: null }
   }
 
   /* ------------------------------ actions ------------------------------ */
@@ -364,6 +420,7 @@ export function apply(ctx, config) {
     if (await branchExists(root, name)) throw httpError(409, `分支 ${name} 已存在`)
     if (await isDirectory(target)) throw httpError(409, `目录已存在：${target}`)
     await git(root, ['worktree', 'add', '-b', name, target, 'HEAD'])
+    invalidateTree()
     await ensurePoolIgnore(root)
     let workspaceId = null
     const current = await settings()
@@ -416,6 +473,7 @@ export function apply(ctx, config) {
     if (alreadyMerged) return { ok: true, branch: entry.branch, alreadyMerged: true }
     try {
       const { stdout } = await git(main, ['merge', '--no-ff', entry.branch, '-m', `Merge worktree '${entry.branch}'`])
+      invalidateTree()
       return { ok: true, branch: entry.branch, output: stdout.trim().slice(0, 2000) }
     } catch (error) {
       const conflicts = await git(main, ['diff', '--name-only', '--diff-filter=U'])
@@ -445,6 +503,7 @@ export function apply(ctx, config) {
     }
     const registeredId = await workspaceIdForPath(entry.path)
     await git(main, ['worktree', 'remove', entry.path])
+    invalidateTree()
     let branchDeleted = false
     let branchError = null
     if (body.deleteBranch && entry.branch) {
@@ -459,10 +518,25 @@ export function apply(ctx, config) {
     return { ok: true, removed: entry.path, branchDeleted, branchError }
   }
 
+  async function adoptRepository(body) {
+    const raw = typeof body.path === 'string' ? body.path.trim() : ''
+    if (!raw) throw httpError(400, '缺少目录路径')
+    if (!(await isDirectory(raw))) throw httpError(400, `目录不存在：${raw}`)
+    const info = await mainRootOf(raw)
+    if (!info) throw httpError(400, '该目录不是 Git 仓库')
+    const root = info.main
+    const existing = await workspaceIdForPath(root)
+    if (existing) return { ok: true, workspaceId: existing, path: root, created: false }
+    const workspace = await ctx.workspaceRegistry.create(root, basename(root))
+    invalidateTree()
+    return { ok: true, workspaceId: workspace.id, path: root, created: true }
+  }
+
   async function registerExisting(body) {
     const { main, entry } = await locate(body.path)
     const title = entry.branch ? `worktree: ${entry.branch}` : undefined
     const workspaceId = await registerWorktree(entry.path, title)
+    invalidateTree()
     return { ok: true, workspaceId }
   }
 
@@ -471,6 +545,7 @@ export function apply(ctx, config) {
     const id = await workspaceIdForPath(body.path)
     if (!id) return { ok: true, workspaceId: null }
     await ctx.workspaceRegistry.delete(id)
+    invalidateTree()
     return { ok: true, workspaceId: id }
   }
 
@@ -495,6 +570,7 @@ export function apply(ctx, config) {
   }
 
   async function rollback() {
+    invalidateTree()
     const removed = []
     for (const item of await registeredWorktrees()) {
       await ctx.workspaceRegistry.delete(item.workspace.id)
@@ -582,6 +658,10 @@ export function apply(ctx, config) {
         }
         if (route === '/remove') {
           send(res, 200, await removeWorktree(body))
+          return
+        }
+        if (route === '/adopt') {
+          send(res, 200, await adoptRepository(body))
           return
         }
         if (route === '/register') {
