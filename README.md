@@ -82,4 +82,4 @@ dsh plugin --profile web add /absolute/path/to/dsh-worktrees
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 liwang
+[MIT](LICENSE) © 2026 nopainanymore
