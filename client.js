@@ -21,6 +21,8 @@ window.__ModuleLoader__.load({
         'action.merged': 'Merged',
         'action.confirmMerge': 'Merge',
         'action.remove': 'Remove worktree…',
+        'action.finish': 'Finish and clean up…',
+        'action.confirmFinish': 'Finish and clean up',
         'action.confirmRemove': 'Remove worktree',
         'action.cancel': 'Cancel',
         'action.open': 'Open session',
@@ -65,6 +67,14 @@ window.__ModuleLoader__.load({
         'merge.title': 'Merge {branch} into {target}',
         'merge.detail': '{ahead} commits ahead{behind}. The workspace must have no uncommitted changes.',
         'merge.detailNothing': 'Nothing to merge — the branch is already in {target}.',
+        'merge.upstreamBehind': 'The target branch is {count} commits behind {upstream}.',
+        'merge.notDefault': 'The main checkout is on {branch}, not on the default branch {default}.',
+        'finish.title': 'Finish {branch}?',
+        'finish.body': 'Merges {count} commits into {target}, then deletes the worktree directory, its branch and its sidebar entry.',
+        'finish.nothing': 'Nothing to merge — this removes the worktree, its branch and its sidebar entry.',
+        'notice.finished': 'Finished {branch}: merged, removed and cleaned up.',
+        'notice.finishedUnmerged': 'Finished {branch}: nothing to merge; removed and cleaned up.',
+        'notice.finishedKeptBranch': 'Finished {branch}, but the branch was kept: {error}',
         'remove.title': 'Remove worktree {branch}?',
         'remove.body': 'Deletes {path}. The branch is kept unless you choose otherwise.',
         'remove.deleteBranch': 'Also delete the branch {branch} (merged already)',
@@ -101,6 +111,8 @@ window.__ModuleLoader__.load({
         'action.merged': '已合并',
         'action.confirmMerge': '合并',
         'action.remove': '移除 worktree…',
+        'action.finish': '完成并清理…',
+        'action.confirmFinish': '完成并清理',
         'action.confirmRemove': '移除 worktree',
         'action.cancel': '取消',
         'action.open': '打开会话',
@@ -145,6 +157,14 @@ window.__ModuleLoader__.load({
         'merge.title': '把 {branch} 合并到 {target}',
         'merge.detail': '领先 {ahead} 个提交{behind}。主工作区必须没有未提交的改动。',
         'merge.detailNothing': '没有需要合并的内容——分支已在 {target} 里。',
+        'merge.upstreamBehind': '目标分支落后 {upstream} {count} 个提交。',
+        'merge.notDefault': '主检出当前在 {branch} 上，不在默认分支 {default}。',
+        'finish.title': '完成 {branch}？',
+        'finish.body': '把 {count} 个提交合并到 {target}，然后删除工作树目录、分支和侧边栏条目。',
+        'finish.nothing': '没有需要合并的内容——将删除工作树、分支和侧边栏条目。',
+        'notice.finished': '已完成 {branch}：合并、移除并清理完毕。',
+        'notice.finishedUnmerged': '已完成 {branch}：无需合并，已移除并清理。',
+        'notice.finishedKeptBranch': '已完成 {branch}，但分支保留：{error}',
         'remove.title': '移除 worktree {branch}？',
         'remove.body': '会删除 {path}；分支默认保留，除非你勾选下面的选项。',
         'remove.deleteBranch': '同时删除分支 {branch}（已合并）',
@@ -416,7 +436,8 @@ window.__ModuleLoader__.load({
 
         React.useEffect(() => {
           if (!confirm || !confirmRef.current) return
-          const target = confirm === 'remove'
+          const destructive = confirm === 'remove' || confirm === 'finish'
+          const target = destructive
             ? confirmRef.current.querySelector('[data-cancel]')
             : confirmRef.current.querySelector('[data-primary]')
           if (target) target.focus()
@@ -424,6 +445,13 @@ window.__ModuleLoader__.load({
 
         const target = repo.branch ? `${repo.title} · ${repo.branch}` : repo.title
         const canMerge = Boolean(worktree.branch) && !worktree.merged
+        const targetNotes = []
+        if (repo.upstream && repo.behindUpstream > 0) {
+          targetNotes.push(t('merge.upstreamBehind', { count: repo.behindUpstream, upstream: repo.upstream }))
+        }
+        if (repo.onDefaultBranch === false && repo.defaultBranch) {
+          targetNotes.push(t('merge.notDefault', { branch: repo.branch, default: repo.defaultBranch }))
+        }
 
         const items = []
         if (worktree.workspaceId) {
@@ -432,6 +460,7 @@ window.__ModuleLoader__.load({
         } else {
           items.push({ id: 'register', label: t('action.addToSidebar'), onSelect: () => register() })
         }
+        if (worktree.inPool) items.push({ id: 'finish', label: t('action.finish'), onSelect: () => setConfirm('finish') })
         items.push({ id: 'remove', label: t('action.remove'), danger: true, onSelect: () => { setDeleteBranch(false); setConfirm('remove') } })
 
         async function merge() {
@@ -443,6 +472,20 @@ window.__ModuleLoader__.load({
               text: result.alreadyMerged ? t('notice.alreadyMerged') : t('notice.merged', { branch: worktree.branch }),
             })
           }
+        }
+
+        async function finish() {
+          const result = await run('/finish', { path: worktree.path })
+          setConfirm(null)
+          if (!result) return
+          if (result.branchError) {
+            notify({ kind: 'ok', text: t('notice.finishedKeptBranch', { branch: result.branch, error: result.branchError }) })
+            return
+          }
+          notify({
+            kind: 'ok',
+            text: result.merged ? t('notice.finished', { branch: result.branch }) : t('notice.finishedUnmerged', { branch: result.branch }),
+          })
         }
 
         async function remove() {
@@ -509,10 +552,34 @@ window.__ModuleLoader__.load({
                         behind: worktree.behind > 0 ? t('state.behind', { count: worktree.behind }) : '',
                       }),
                 ),
+                targetNotes.length
+                  ? h('div', null, targetNotes.map((note) => h('p', { key: note, className: 'dshwt-sub' }, note)))
+                  : null,
                 h(
                   'div',
                   { className: 'dshwt-row' },
                   h('button', { className: 'dshwt-btn primary', 'data-primary': true, disabled: busy || worktree.merged, onClick: merge }, t('action.confirmMerge')),
+                  h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
+                ),
+              )
+            : null,
+          confirm === 'finish'
+            ? h(
+                'div',
+                { className: 'dshwt-confirm', ref: confirmRef, role: 'group', 'aria-label': t('finish.title', { branch: worktree.branch }) },
+                h('p', null, t('finish.title', { branch: worktree.branch })),
+                h(
+                  'p',
+                  { className: 'dshwt-sub' },
+                  worktree.merged ? t('finish.nothing') : t('finish.body', { count: worktree.ahead, target }),
+                ),
+                targetNotes.length
+                  ? h('div', null, targetNotes.map((note) => h('p', { key: note, className: 'dshwt-sub' }, note)))
+                  : null,
+                h(
+                  'div',
+                  { className: 'dshwt-row' },
+                  h('button', { className: 'dshwt-btn danger', 'data-primary': true, disabled: busy, onClick: finish }, t('action.confirmFinish')),
                   h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
                 ),
               )

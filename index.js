@@ -193,6 +193,41 @@ async function mapLimit(items, limit, task) {
   return results
 }
 
+/**
+ * Tracking state of the main checkout: its upstream, how far it diverged, and
+ * the remote default branch. The panel names the merge target from these so a
+ * checkout sitting on a feature branch is visible before someone merges.
+ */
+async function upstreamStatus(root) {
+  let upstream = null
+  try {
+    const { stdout } = await git(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
+    upstream = stdout.trim() || null
+  } catch {
+    upstream = null
+  }
+  let aheadUpstream = 0
+  let behindUpstream = 0
+  if (upstream) {
+    try {
+      const { stdout } = await git(root, ['rev-list', '--left-right', '--count', `HEAD...${upstream}`])
+      const [localOnly, remoteOnly] = stdout.trim().split(/\s+/).map((value) => Number(value))
+      aheadUpstream = Number.isFinite(localOnly) ? localOnly : 0
+      behindUpstream = Number.isFinite(remoteOnly) ? remoteOnly : 0
+    } catch {
+      // a missing remote ref leaves the counters at zero
+    }
+  }
+  let defaultBranch = null
+  try {
+    const { stdout } = await git(root, ['symbolic-ref', '-q', 'refs/remotes/origin/HEAD'])
+    defaultBranch = stdout.trim().replace(/^refs\/remotes\/origin\//, '') || null
+  } catch {
+    defaultBranch = null
+  }
+  return { upstream, aheadUpstream, behindUpstream, defaultBranch }
+}
+
 async function isAncestor(root, branch) {
   try {
     await git(root, ['merge-base', '--is-ancestor', branch, 'HEAD'])
@@ -355,6 +390,7 @@ export function apply(ctx, config) {
         inPool: isManagedPath(path),
       }
     })
+    const tracking = await upstreamStatus(root)
     return {
       id: workspace.id,
       title: workspace.title,
@@ -362,6 +398,11 @@ export function apply(ctx, config) {
       // The main checkout's current branch is the merge target, so the panel
       // can name it instead of saying "the workspace".
       branch: entries[0].branch ?? null,
+      upstream: tracking.upstream,
+      aheadUpstream: tracking.aheadUpstream,
+      behindUpstream: tracking.behindUpstream,
+      defaultBranch: tracking.defaultBranch,
+      onDefaultBranch: tracking.defaultBranch === null || tracking.defaultBranch === (entries[0].branch ?? null),
       worktrees,
     }
   }
@@ -460,6 +501,15 @@ export function apply(ctx, config) {
   async function mergeWorktree(body) {
     const { main, entry } = await locate(body.path)
     if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法合并')
+    const worktreeDirty = await dirtyStatus(entry.path)
+    if (worktreeDirty.count !== 0) {
+      return {
+        ok: false,
+        reason: 'worktree-dirty',
+        message: '这个 worktree 还有未提交的改动：合并只会带走已提交的部分，先提交再合并',
+        files: worktreeDirty.files,
+      }
+    }
     const dirty = await dirtyStatus(main)
     if (dirty.count !== 0) {
       return {
@@ -530,6 +580,83 @@ export function apply(ctx, config) {
     const workspace = await ctx.workspaceRegistry.create(root, basename(root))
     invalidateTree()
     return { ok: true, workspaceId: workspace.id, path: root, created: true }
+  }
+
+  /**
+   * The happy path in one call: merge what the worktree committed, then remove
+   * the checkout, delete its branch and unregister the workspace. Every guard
+   * runs before the first mutation, so a refusal leaves the tree untouched.
+   */
+  async function finishWorktree(body) {
+    const { main, entry } = await locate(body.path)
+    if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法完成')
+    if (!isManagedPath(entry.path)) {
+      throw httpError(400, '只对 .agents/worktrees 下的工作树执行「完成并清理」，其他目录请手动移除')
+    }
+
+    const worktreeDirty = await dirtyStatus(entry.path)
+    if (worktreeDirty.count !== 0) {
+      return {
+        ok: false,
+        reason: 'worktree-dirty',
+        message: '这个 worktree 还有未提交的改动：先提交，否则清理会丢掉它们',
+        files: worktreeDirty.files,
+      }
+    }
+    const mainDirty = await dirtyStatus(main)
+    if (mainDirty.count !== 0) {
+      return {
+        ok: false,
+        reason: 'dirty',
+        message: '主工作区有未提交的改动，合并前请先提交或暂存',
+        files: mainDirty.files,
+      }
+    }
+
+    const alreadyMerged = await isAncestor(main, entry.branch)
+    if (!alreadyMerged) {
+      try {
+        await git(main, ['merge', '--no-ff', entry.branch, '-m', `Merge worktree '${entry.branch}'`])
+        invalidateTree()
+      } catch (error) {
+        const conflicts = await git(main, ['diff', '--name-only', '--diff-filter=U'])
+          .then((result) => result.stdout.split('\n').map((line) => line.trim()).filter(Boolean))
+          .catch(() => [])
+        await git(main, ['merge', '--abort']).catch(() => {})
+        return {
+          ok: false,
+          reason: 'conflict',
+          message: '合并冲突，已回滚合并，未做任何清理；请在主工作区手动处理',
+          conflicts,
+          stderr: String(error.stderr || '').slice(0, 2000),
+        }
+      }
+    }
+
+    const registeredId = await workspaceIdForPath(entry.path)
+    try {
+      await git(main, ['worktree', 'remove', entry.path])
+      invalidateTree()
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'remove-failed',
+        merged: !alreadyMerged,
+        message: `合并已完成，但移除工作树失败：${String(error.stderr || error.message || '').trim().slice(0, 400)}`,
+      }
+    }
+
+    let branchDeleted = false
+    let branchError = null
+    try {
+      await git(main, ['branch', '-d', entry.branch])
+      branchDeleted = true
+    } catch (error) {
+      branchError = String(error.stderr || error.message || '').trim().slice(0, 500)
+    }
+    if (registeredId) await ctx.workspaceRegistry.delete(registeredId)
+
+    return { ok: true, merged: !alreadyMerged, branch: entry.branch, removed: entry.path, branchDeleted, branchError }
   }
 
   async function registerExisting(body) {
@@ -658,6 +785,10 @@ export function apply(ctx, config) {
         }
         if (route === '/remove') {
           send(res, 200, await removeWorktree(body))
+          return
+        }
+        if (route === '/finish') {
+          send(res, 200, await finishWorktree(body))
           return
         }
         if (route === '/adopt') {
