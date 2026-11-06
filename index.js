@@ -242,6 +242,23 @@ async function upstreamStatus(root) {
  * Last commit of one working tree, for "how long has this been idle" and for
  * ordering. One extra `git log` per worktree, run in parallel with the probes.
  */
+/**
+ * Whether the checkout has an unfinished merge, and which paths conflict. A
+ * conflicted merge is left in place on purpose: the main workspace owns the
+ * resolution, and the panel only reports and aborts it.
+ */
+async function mergeState(root) {
+  try {
+    await git(root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
+  } catch {
+    return { merging: false, conflicts: [] }
+  }
+  const conflicts = await git(root, ['diff', '--name-only', '--diff-filter=U'])
+    .then((result) => result.stdout.split('\n').map((line) => line.trim()).filter(Boolean))
+    .catch(() => [])
+  return { merging: true, conflicts }
+}
+
 async function lastCommitOf(directory) {
   try {
     const { stdout } = await git(directory, ['log', '-1', '--format=%H%x1f%ct%x1f%s'])
@@ -418,6 +435,7 @@ export function apply(ctx, config) {
       }
     })
     const tracking = await upstreamStatus(root)
+    const merge = await mergeState(root)
     return {
       id: workspace.id,
       title: workspace.title,
@@ -430,6 +448,8 @@ export function apply(ctx, config) {
       behindUpstream: tracking.behindUpstream,
       defaultBranch: tracking.defaultBranch,
       onDefaultBranch: tracking.defaultBranch === null || tracking.defaultBranch === (entries[0].branch ?? null),
+      merging: merge.merging,
+      conflicts: merge.conflicts,
       worktrees,
     }
   }
@@ -576,6 +596,15 @@ export function apply(ctx, config) {
   async function mergeWorktree(body) {
     const { main, entry } = await locate(body.path)
     if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法合并')
+    const pending = await mergeState(main)
+    if (pending.merging) {
+      return {
+        ok: false,
+        reason: 'merging',
+        conflicts: pending.conflicts,
+        message: '主工作区还有未完成的合并：先解决并提交，或放弃那次合并',
+      }
+    }
     const worktreeDirty = await dirtyStatus(entry.path)
     if (worktreeDirty.count !== 0) {
       return {
@@ -604,11 +633,12 @@ export function apply(ctx, config) {
       const conflicts = await git(main, ['diff', '--name-only', '--diff-filter=U'])
         .then((result) => result.stdout.split('\n').map((line) => line.trim()).filter(Boolean))
         .catch(() => [])
-      await git(main, ['merge', '--abort']).catch(() => {})
+      invalidateTree()
       return {
         ok: false,
         reason: 'conflict',
-        message: '合并冲突，已回滚合并，请在主工作区手动处理',
+        inProgress: true,
+        message: '合并冲突：已把合并留在主工作区，解决后提交，或放弃这次合并',
         conflicts,
         stderr: String(error.stderr || '').slice(0, 2000),
       }
@@ -662,6 +692,61 @@ export function apply(ctx, config) {
    * the checkout, delete its branch and unregister the workspace. Every guard
    * runs before the first mutation, so a refusal leaves the tree untouched.
    */
+  /**
+   * Bring the main checkout's commits into the worktree branch by rebasing it
+   * onto the current HEAD. History is rewritten on purpose (that is what makes
+   * the later merge a fast-forward-free, single-branch story), so a conflict
+   * aborts instead of leaving a half-rebased branch behind.
+   */
+  async function syncWorktree(body) {
+    const { main, entry } = await locate(body.path)
+    if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法同步')
+    const worktreeDirty = await dirtyStatus(entry.path)
+    if (worktreeDirty.count !== 0) {
+      return {
+        ok: false,
+        reason: 'worktree-dirty',
+        message: '这个 worktree 还有未提交的改动：先提交再同步',
+        files: worktreeDirty.files,
+      }
+    }
+    const base = (await git(main, ['rev-parse', 'HEAD'])).stdout.trim()
+    const upToDate = await git(entry.path, ['merge-base', '--is-ancestor', base, 'HEAD'])
+      .then(() => true)
+      .catch(() => false)
+    if (upToDate) return { ok: true, synced: false, branch: entry.branch, baseCommit: base }
+    try {
+      await git(entry.path, ['rebase', base])
+      invalidateTree()
+      return { ok: true, synced: true, branch: entry.branch, baseCommit: base }
+    } catch (error) {
+      const conflicts = await git(entry.path, ['diff', '--name-only', '--diff-filter=U'])
+        .then((result) => result.stdout.split('\n').map((line) => line.trim()).filter(Boolean))
+        .catch(() => [])
+      await git(entry.path, ['rebase', '--abort']).catch(() => {})
+      invalidateTree()
+      return {
+        ok: false,
+        reason: 'conflict',
+        message: 'rebase 冲突，已回滚，工作树保持原样；请在会话里手动处理',
+        conflicts,
+        stderr: String(error.stderr || '').slice(0, 2000),
+      }
+    }
+  }
+
+  async function abortMerge(body) {
+    const workspace = workspaceById(body.workspaceId)
+    if (!workspace) throw httpError(404, '工作区不存在')
+    const info = await mainRootOf(workspace.path)
+    if (!info || info.linked) throw httpError(400, '该工作区不是主检出')
+    const pending = await mergeState(info.self)
+    if (!pending.merging) return { ok: true, aborted: false, conflicts: [] }
+    await git(info.self, ['merge', '--abort'])
+    invalidateTree()
+    return { ok: true, aborted: true, conflicts: pending.conflicts }
+  }
+
   async function finishWorktree(body) {
     const { main, entry } = await locate(body.path)
     if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法完成')
@@ -688,6 +773,16 @@ export function apply(ctx, config) {
       }
     }
 
+    const pending = await mergeState(main)
+    if (pending.merging) {
+      return {
+        ok: false,
+        reason: 'merging',
+        conflicts: pending.conflicts,
+        message: '主工作区还有未完成的合并：先解决并提交，或放弃那次合并',
+      }
+    }
+
     const alreadyMerged = await isAncestor(main, entry.branch)
     if (!alreadyMerged) {
       try {
@@ -697,11 +792,12 @@ export function apply(ctx, config) {
         const conflicts = await git(main, ['diff', '--name-only', '--diff-filter=U'])
           .then((result) => result.stdout.split('\n').map((line) => line.trim()).filter(Boolean))
           .catch(() => [])
-        await git(main, ['merge', '--abort']).catch(() => {})
+        invalidateTree()
         return {
           ok: false,
           reason: 'conflict',
-          message: '合并冲突，已回滚合并，未做任何清理；请在主工作区手动处理',
+          inProgress: true,
+          message: '合并冲突：已把合并留在主工作区，解决后提交，或放弃这次合并；未做任何清理',
           conflicts,
           stderr: String(error.stderr || '').slice(0, 2000),
         }
@@ -860,6 +956,14 @@ export function apply(ctx, config) {
         }
         if (route === '/remove') {
           send(res, 200, await removeWorktree(body))
+          return
+        }
+        if (route === '/sync') {
+          send(res, 200, await syncWorktree(body))
+          return
+        }
+        if (route === '/abort-merge') {
+          send(res, 200, await abortMerge(body))
           return
         }
         if (route === '/finish') {

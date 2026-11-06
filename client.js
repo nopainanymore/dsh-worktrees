@@ -21,6 +21,8 @@ window.__ModuleLoader__.load({
         'action.merged': 'Merged',
         'action.confirmMerge': 'Merge',
         'action.remove': 'Remove worktree…',
+        'action.sync': 'Rebase onto main…',
+        'action.confirmSync': 'Rebase',
         'action.finish': 'Finish and clean up…',
         'action.confirmFinish': 'Finish and clean up',
         'action.confirmRemove': 'Remove worktree',
@@ -73,12 +75,21 @@ window.__ModuleLoader__.load({
         'merge.detailNothing': 'Nothing to merge — the branch is already in {target}.',
         'merge.upstreamBehind': 'The target branch is {count} commits behind {upstream}.',
         'merge.notDefault': 'The main checkout is on {branch}, not on the default branch {default}.',
+        'merge.inProgress': 'The main checkout has an unfinished merge ({count} conflicted files).',
+        'merge.openMain': 'Open main workspace',
+        'merge.abort': 'Abort merge',
+        'notice.aborted': 'Merge aborted.',
+        'notice.nothingToAbort': 'There was no merge in progress.',
         'finish.title': 'Finish {branch}?',
         'finish.body': 'Merges {count} commits into {target}, then deletes the worktree directory, its branch and its sidebar entry.',
         'finish.nothing': 'Nothing to merge — this removes the worktree, its branch and its sidebar entry.',
         'notice.finished': 'Finished {branch}: merged, removed and cleaned up.',
         'notice.finishedUnmerged': 'Finished {branch}: nothing to merge; removed and cleaned up.',
         'notice.finishedKeptBranch': 'Finished {branch}, but the branch was kept: {error}',
+        'sync.title': 'Rebase {branch} onto {target}?',
+        'sync.body': 'Applies the {count} commits the main checkout has and this worktree is missing. History is rewritten; a conflict aborts the rebase.',
+        'notice.synced': 'Rebased {branch} onto the main checkout.',
+        'notice.syncNothing': 'Already up to date with the main checkout.',
         'remove.title': 'Remove worktree {branch}?',
         'remove.body': 'Deletes {path}. The branch is kept unless you choose otherwise.',
         'remove.sessions': 'This worktree still has {count} sessions.',
@@ -121,6 +132,8 @@ window.__ModuleLoader__.load({
         'action.merged': '已合并',
         'action.confirmMerge': '合并',
         'action.remove': '移除 worktree…',
+        'action.sync': '同步基线…',
+        'action.confirmSync': '同步',
         'action.finish': '完成并清理…',
         'action.confirmFinish': '完成并清理',
         'action.confirmRemove': '移除 worktree',
@@ -173,12 +186,21 @@ window.__ModuleLoader__.load({
         'merge.detailNothing': '没有需要合并的内容——分支已在 {target} 里。',
         'merge.upstreamBehind': '目标分支落后 {upstream} {count} 个提交。',
         'merge.notDefault': '主检出当前在 {branch} 上，不在默认分支 {default}。',
+        'merge.inProgress': '主工作区有未完成的合并（{count} 个冲突文件）。',
+        'merge.openMain': '打开主工作区',
+        'merge.abort': '放弃合并',
+        'notice.aborted': '已放弃合并。',
+        'notice.nothingToAbort': '没有进行中的合并。',
         'finish.title': '完成 {branch}？',
         'finish.body': '把 {count} 个提交合并到 {target}，然后删除工作树目录、分支和侧边栏条目。',
         'finish.nothing': '没有需要合并的内容——将删除工作树、分支和侧边栏条目。',
         'notice.finished': '已完成 {branch}：合并、移除并清理完毕。',
         'notice.finishedUnmerged': '已完成 {branch}：无需合并，已移除并清理。',
         'notice.finishedKeptBranch': '已完成 {branch}，但分支保留：{error}',
+        'sync.title': '把 {branch} rebase 到 {target}？',
+        'sync.body': '把主工作区已有、这棵工作树缺少的 {count} 个提交 rebase 过来；历史会被重写，冲突则自动回滚。',
+        'notice.synced': '已把 {branch} rebase 到主工作区最新提交。',
+        'notice.syncNothing': '已经和主工作区一致，无需同步。',
         'remove.title': '移除 worktree {branch}？',
         'remove.body': '会删除 {path}；分支默认保留，除非你勾选下面的选项。',
         'remove.sessions': '这个 worktree 还有 {count} 个会话。',
@@ -503,6 +525,9 @@ window.__ModuleLoader__.load({
         } else {
           items.push({ id: 'register', label: t('action.addToSidebar'), onSelect: () => register() })
         }
+        if (worktree.inPool && worktree.behind > 0) {
+          items.push({ id: 'sync', label: t('action.sync'), onSelect: () => setConfirm('sync') })
+        }
         if (worktree.inPool) items.push({ id: 'finish', label: t('action.finish'), onSelect: () => setConfirm('finish') })
         items.push({ id: 'remove', label: t('action.remove'), danger: true, onSelect: () => { setDeleteBranch(false); setConfirm('remove') } })
 
@@ -515,6 +540,16 @@ window.__ModuleLoader__.load({
               text: result.alreadyMerged ? t('notice.alreadyMerged') : t('notice.merged', { branch: worktree.branch }),
             })
           }
+        }
+
+        async function sync() {
+          const result = await run('/sync', { path: worktree.path })
+          setConfirm(null)
+          if (!result) return
+          notify({
+            kind: 'ok',
+            text: result.synced ? t('notice.synced', { branch: worktree.branch }) : t('notice.syncNothing'),
+          })
         }
 
         async function finish() {
@@ -605,6 +640,20 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'dshwt-row' },
                   h('button', { className: 'dshwt-btn primary', 'data-primary': true, disabled: busy || worktree.merged, onClick: merge }, t('action.confirmMerge')),
+                  h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
+                ),
+              )
+            : null,
+          confirm === 'sync'
+            ? h(
+                'div',
+                { className: 'dshwt-confirm', ref: confirmRef, role: 'group', 'aria-label': t('sync.title', { branch: worktree.branch, target }) },
+                h('p', null, t('sync.title', { branch: worktree.branch, target })),
+                h('p', { className: 'dshwt-sub' }, t('sync.body', { count: worktree.behind })),
+                h(
+                  'div',
+                  { className: 'dshwt-row' },
+                  h('button', { className: 'dshwt-btn primary', 'data-primary': true, disabled: busy, onClick: sync }, t('action.confirmSync')),
                   h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
                 ),
               )
@@ -827,6 +876,11 @@ window.__ModuleLoader__.load({
           const bridge = typeof globalThis === 'undefined' ? undefined : globalThis.__DSH_DIRECTORY_PICKER__
           if (bridge && typeof bridge.pick === 'function') return bridge.pick()
           return ctx.uiWorkspace.pickDirectory()
+        }
+
+        async function abortMerge(workspaceId) {
+          const result = await run('/abort-merge', { workspaceId })
+          if (result) notify({ kind: 'ok', text: result.aborted ? t('notice.aborted') : t('notice.nothingToAbort') })
         }
 
         async function addRepository() {
@@ -1110,6 +1164,19 @@ window.__ModuleLoader__.load({
                     return h('div', { className: 'dshwt-head-chips' }, chips)
                   })(),
                 ),
+                repo.merging
+                  ? h(
+                      'div',
+                      { className: 'dshwt-confirm', role: 'alert' },
+                      h('p', null, t('merge.inProgress', { count: repo.conflicts ? repo.conflicts.length : 0 })),
+                      h(
+                        'div',
+                        { className: 'dshwt-row' },
+                        h('button', { className: 'dshwt-btn primary', disabled: busy, onClick: () => openWorkspace(repo.id) }, t('merge.openMain')),
+                        h('button', { className: 'dshwt-btn danger', disabled: busy, onClick: () => abortMerge(repo.id) }, t('merge.abort')),
+                      ),
+                    )
+                  : null,
                 h(
                   'ul',
                   { className: 'dshwt-list', id: `dshwt-list-${repo.id}`, hidden: folded },
