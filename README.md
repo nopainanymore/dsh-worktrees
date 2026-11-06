@@ -14,6 +14,8 @@
   或主检出不在 `origin/HEAD` 指向的默认分支上时，会额外提示。
 - 合并前同时检查 **worktree 自身** 是否干净：有未提交改动就拒绝（否则只会带走已提交的一半）。
 - 「完成并清理」一步完成合并 → 删除工作树目录 → 删除分支 → 移出侧边栏；任一步的守卫不通过都不会动任何东西。
+- 有 `origin` 时行内有「推送分支」和「创建 PR…」（`gh pr create`，先自动 push）。
+- 检出目录被删、git 仍留记录时，仓库标题栏显示「N 个失效条目」+「清理」（`git worktree prune`）。
 - 移除确认会写明目录；已合并的分支是否一并删除由勾选框决定（默认关闭）。
 - 没有 worktree 的仓库也会列出（否则新加的仓库无法创建第一个 worktree）。
 - 创建、合并、移除、加入侧边栏均走同一套 Host 逻辑。
@@ -84,6 +86,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-worktrees
     copyIgnored:              # 创建后从主检出复制这些「被 gitignore 忽略」的文件
       - .env
       - .env.local
+    setupCommand: null        # 创建后在新工作树里执行的命令，例如 'pnpm install'
 ```
 
 `copyIgnored` 只复制 `git check-ignore` 认定为忽略的文件——未忽略的文件不复制，否则新工作树一创建

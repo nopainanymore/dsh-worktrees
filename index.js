@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
   registerOnCreate: true,
   branchPrefix: '',
   copyIgnored: ['.env', '.env.local'],
+  setupCommand: null,
 }
 const SESSION_FILE_NAME = 'worktrees'
 
@@ -38,6 +39,12 @@ function pickSettings(source) {
   if (typeof source.registerOnCreate === 'boolean') out.registerOnCreate = source.registerOnCreate
   if (typeof source.branchPrefix === 'string' && /^[A-Za-z0-9._/-]{0,40}$/.test(source.branchPrefix)) {
     out.branchPrefix = source.branchPrefix
+  }
+  if (typeof source.setupCommand === 'string' && source.setupCommand.length > 0 && source.setupCommand.length < 2000) {
+    out.setupCommand = source.setupCommand
+  }
+  if (source.setupCommand === null) {
+    out.setupCommand = null
   }
   if (Array.isArray(source.copyIgnored)) {
     out.copyIgnored = source.copyIgnored.filter(
@@ -117,7 +124,7 @@ function httpError(status, message) {
 function parseWorktreeList(text) {
   const entries = []
   for (const block of String(text).split('\n\n')) {
-    const entry = { path: '', head: undefined, branch: null, detached: false, bare: false, locked: false }
+    const entry = { path: '', head: undefined, branch: null, detached: false, bare: false, locked: false, prunable: false }
     for (const line of block.split('\n')) {
       if (!line) continue
       const at = line.indexOf(' ')
@@ -129,6 +136,7 @@ function parseWorktreeList(text) {
       else if (key === 'detached') entry.detached = true
       else if (key === 'bare') entry.bare = true
       else if (key === 'locked') entry.locked = true
+      else if (key === 'prunable') entry.prunable = true
     }
     if (entry.path) entries.push(entry)
   }
@@ -247,6 +255,30 @@ async function upstreamStatus(root) {
  * conflicted merge is left in place on purpose: the main workspace owns the
  * resolution, and the panel only reports and aborts it.
  */
+/**
+ * Run one command without a shell and settle with its output. Used for the
+ * optional setup hook and for `gh`, where argv quoting must stay literal.
+ */
+function runCommand(bin, args, cwd, timeoutMs = 600_000) {
+  return new Promise((resolvePromise) => {
+    execFile(bin, args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (error, stdout, stderr) => {
+      resolvePromise({
+        ok: !error,
+        code: error && typeof error.code === 'number' ? error.code : 0,
+        missing: Boolean(error && error.code === 'ENOENT'),
+        stdout: String(stdout || '').slice(-6000),
+        stderr: String(stderr || '').slice(-3000),
+      })
+    })
+  })
+}
+
+function shellCommand(command, cwd, timeoutMs = 600_000) {
+  const platform = process.platform
+  if (platform === 'win32') return runCommand('cmd.exe', ['/d', '/s', '/c', command], cwd, timeoutMs)
+  return runCommand('/bin/sh', ['-lc', command], cwd, timeoutMs)
+}
+
 async function mergeState(root) {
   try {
     await git(root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
@@ -408,7 +440,10 @@ export function apply(ctx, config) {
     const entries = parseWorktreeList(stdout)
     const root = workspace.path
     const registered = registeredWorkspaces()
-    const worktrees = await mapLimit(entries.slice(1), 8, async (entry) => {
+    const live = entries.slice(1).filter((entry) => !entry.prunable)
+    const prunable = entries.slice(1).length - live.length
+    const hasRemote = await git(root, ['remote', 'get-url', 'origin']).then((result) => result.stdout.trim().length > 0).catch(() => false)
+    const worktrees = await mapLimit(live, 8, async (entry) => {
       const path = await canonical(entry.path)
       const [counts, dirty, commit] = await Promise.all([
         entry.branch ? aheadBehind(root, entry.branch) : Promise.resolve(null),
@@ -448,6 +483,8 @@ export function apply(ctx, config) {
       behindUpstream: tracking.behindUpstream,
       defaultBranch: tracking.defaultBranch,
       onDefaultBranch: tracking.defaultBranch === null || tracking.defaultBranch === (entries[0].branch ?? null),
+      hasRemote,
+      prunable,
       merging: merge.merging,
       conflicts: merge.conflicts,
       worktrees,
@@ -525,11 +562,22 @@ export function apply(ctx, config) {
     invalidateTree()
     await ensurePoolIgnore(root)
     const copied = await copyIgnoredFiles(root, target, current.copyIgnored)
+    let setup = null
+    if (typeof current.setupCommand === 'string' && current.setupCommand.length > 0) {
+      const executed = await shellCommand(current.setupCommand, target)
+      setup = {
+        ok: executed.ok,
+        command: current.setupCommand,
+        stdout: executed.stdout,
+        stderr: executed.stderr,
+        missing: executed.missing,
+      }
+    }
     let workspaceId = null
     if (current.registerOnCreate && current.grouping === 'worktree') {
       workspaceId = await registerWorktree(target, `worktree: ${name}`)
     }
-    return { path: target, branch, workspaceId, from, baseCommit, copied }
+    return { path: target, branch, workspaceId, from, baseCommit, copied, setup }
   }
 
   /**
@@ -733,6 +781,53 @@ export function apply(ctx, config) {
         stderr: String(error.stderr || '').slice(0, 2000),
       }
     }
+  }
+
+  async function pushWorktree(body) {
+    const { entry } = await locate(body.path)
+    if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法推送')
+    const remote = await git(entry.path, ['remote', 'get-url', 'origin']).then((result) => result.stdout.trim()).catch(() => '')
+    if (!remote) throw httpError(400, '该仓库没有 origin 远程')
+    const pushed = await runCommand(await resolveGit(), ['push', '-u', 'origin', entry.branch], entry.path)
+    if (!pushed.ok) {
+      return { ok: false, reason: 'push-failed', message: (pushed.stderr || pushed.stdout || 'git push failed').slice(0, 2000) }
+    }
+    return { ok: true, branch: entry.branch, remote, output: (pushed.stdout + pushed.stderr).slice(0, 2000) }
+  }
+
+  async function openPullRequest(body) {
+    const { main, entry } = await locate(body.path)
+    if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法创建 PR')
+    const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : entry.branch
+    const tracking = await upstreamStatus(main)
+    const entries = parseWorktreeList((await git(main, ['worktree', 'list', '--porcelain'])).stdout)
+    const base = tracking.defaultBranch || (entries[0] && entries[0].branch) || null
+
+    const pushed = await pushWorktree(body)
+    if (pushed.ok === false) return pushed
+
+    const args = ['pr', 'create', '--head', entry.branch, '--title', title, '--body', `Created from worktree ${entry.branch}.`]
+    if (base) args.push('--base', base)
+    const created = await runCommand('gh', args, entry.path)
+    if (created.missing) {
+      return { ok: false, reason: 'gh-missing', message: '没有找到 gh CLI：先安装 GitHub CLI 并 gh auth login' }
+    }
+    if (!created.ok) {
+      return { ok: false, reason: 'pr-failed', message: (created.stderr || created.stdout || 'gh pr create failed').slice(0, 2000) }
+    }
+    const url = (created.stdout.match(/https?:\/\/\S+/) || [null])[0]
+    return { ok: true, branch: entry.branch, base, url, output: created.stdout.slice(0, 2000) }
+  }
+
+  async function pruneWorktrees(body) {
+    const workspace = workspaceById(body.workspaceId)
+    if (!workspace) throw httpError(404, '工作区不存在')
+    const info = await mainRootOf(workspace.path)
+    if (!info || info.linked) throw httpError(400, '该工作区不是主检出')
+    const pruned = await runCommand(await resolveGit(), ['worktree', 'prune', '-v'], info.self)
+    invalidateTree()
+    if (!pruned.ok) return { ok: false, message: (pruned.stderr || 'git worktree prune failed').slice(0, 2000) }
+    return { ok: true, output: (pruned.stdout + pruned.stderr).slice(0, 2000) }
   }
 
   async function abortMerge(body) {
@@ -956,6 +1051,18 @@ export function apply(ctx, config) {
         }
         if (route === '/remove') {
           send(res, 200, await removeWorktree(body))
+          return
+        }
+        if (route === '/push') {
+          send(res, 200, await pushWorktree(body))
+          return
+        }
+        if (route === '/pr') {
+          send(res, 200, await openPullRequest(body))
+          return
+        }
+        if (route === '/prune') {
+          send(res, 200, await pruneWorktrees(body))
           return
         }
         if (route === '/sync') {

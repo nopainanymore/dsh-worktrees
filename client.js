@@ -21,6 +21,10 @@ window.__ModuleLoader__.load({
         'action.merged': 'Merged',
         'action.confirmMerge': 'Merge',
         'action.remove': 'Remove worktree…',
+        'action.push': 'Push branch',
+        'action.pullRequest': 'Create pull request…',
+        'action.confirmPullRequest': 'Create pull request',
+        'action.prune': 'Clean up',
         'action.sync': 'Rebase onto main…',
         'action.confirmSync': 'Rebase',
         'action.finish': 'Finish and clean up…',
@@ -89,6 +93,15 @@ window.__ModuleLoader__.load({
         'sync.title': 'Rebase {branch} onto {target}?',
         'sync.body': 'Applies the {count} commits the main checkout has and this worktree is missing. History is rewritten; a conflict aborts the rebase.',
         'notice.synced': 'Rebased {branch} onto the main checkout.',
+        'notice.pushed': 'Pushed {branch} to origin.',
+        'notice.prCreated': 'Pull request created: {url}',
+        'notice.pruned': 'Pruned stale worktree entries.',
+        'notice.createdSetup': 'Created {branch} and ran the setup command.',
+        'notice.setupFailed': 'Created {branch}, but the setup command failed: {error}',
+        'state.prunable': '{count} stale',
+        'repo.prunable': 'The checkout directory is gone but git still records it.',
+        'pr.title': 'Create a pull request for {branch}?',
+        'pr.body': 'Pushes the branch to origin, then runs gh pr create against {base}.',
         'notice.syncNothing': 'Already up to date with the main checkout.',
         'remove.title': 'Remove worktree {branch}?',
         'remove.body': 'Deletes {path}. The branch is kept unless you choose otherwise.',
@@ -132,6 +145,10 @@ window.__ModuleLoader__.load({
         'action.merged': '已合并',
         'action.confirmMerge': '合并',
         'action.remove': '移除 worktree…',
+        'action.push': '推送分支',
+        'action.pullRequest': '创建 PR…',
+        'action.confirmPullRequest': '创建 PR',
+        'action.prune': '清理',
         'action.sync': '同步基线…',
         'action.confirmSync': '同步',
         'action.finish': '完成并清理…',
@@ -200,6 +217,15 @@ window.__ModuleLoader__.load({
         'sync.title': '把 {branch} rebase 到 {target}？',
         'sync.body': '把主工作区已有、这棵工作树缺少的 {count} 个提交 rebase 过来；历史会被重写，冲突则自动回滚。',
         'notice.synced': '已把 {branch} rebase 到主工作区最新提交。',
+        'notice.pushed': '已把 {branch} 推送到 origin。',
+        'notice.prCreated': '已创建 PR：{url}',
+        'notice.pruned': '已清理失效的工作树条目。',
+        'notice.createdSetup': '已创建 {branch} 并执行了 setup 命令。',
+        'notice.setupFailed': '已创建 {branch}，但 setup 命令失败：{error}',
+        'state.prunable': '{count} 个失效条目',
+        'repo.prunable': '检出目录已不存在，但 git 仍保留记录。',
+        'pr.title': '为 {branch} 创建 PR？',
+        'pr.body': '先把分支推送到 origin，再用 gh pr create 对 {base} 发起 PR。',
         'notice.syncNothing': '已经和主工作区一致，无需同步。',
         'remove.title': '移除 worktree {branch}？',
         'remove.body': '会删除 {path}；分支默认保留，除非你勾选下面的选项。',
@@ -525,6 +551,10 @@ window.__ModuleLoader__.load({
         } else {
           items.push({ id: 'register', label: t('action.addToSidebar'), onSelect: () => register() })
         }
+        if (worktree.branch && repo.hasRemote) {
+          items.push({ id: 'push', label: t('action.push'), onSelect: push })
+          items.push({ id: 'pr', label: t('action.pullRequest'), onSelect: () => setConfirm('pr') })
+        }
         if (worktree.inPool && worktree.behind > 0) {
           items.push({ id: 'sync', label: t('action.sync'), onSelect: () => setConfirm('sync') })
         }
@@ -540,6 +570,18 @@ window.__ModuleLoader__.load({
               text: result.alreadyMerged ? t('notice.alreadyMerged') : t('notice.merged', { branch: worktree.branch }),
             })
           }
+        }
+
+        async function push() {
+          const result = await run('/push', { path: worktree.path })
+          if (result) notify({ kind: 'ok', text: t('notice.pushed', { branch: worktree.branch }) })
+        }
+
+        async function createPr() {
+          const result = await run('/pr', { path: worktree.path })
+          setConfirm(null)
+          if (!result) return
+          notify({ kind: 'ok', text: t('notice.prCreated', { url: result.url || worktree.branch }) })
         }
 
         async function sync() {
@@ -640,6 +682,20 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'dshwt-row' },
                   h('button', { className: 'dshwt-btn primary', 'data-primary': true, disabled: busy || worktree.merged, onClick: merge }, t('action.confirmMerge')),
+                  h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
+                ),
+              )
+            : null,
+          confirm === 'pr'
+            ? h(
+                'div',
+                { className: 'dshwt-confirm', ref: confirmRef, role: 'group', 'aria-label': t('pr.title', { branch: worktree.branch }) },
+                h('p', null, t('pr.title', { branch: worktree.branch })),
+                h('p', { className: 'dshwt-sub' }, t('pr.body', { base: repo.defaultBranch || repo.branch || 'origin' })),
+                h(
+                  'div',
+                  { className: 'dshwt-row' },
+                  h('button', { className: 'dshwt-btn primary', 'data-primary': true, disabled: busy, onClick: createPr }, t('action.confirmPullRequest')),
                   h('button', { className: 'dshwt-btn ghost', 'data-cancel': true, onClick: () => setConfirm(null) }, t('action.cancel')),
                 ),
               )
@@ -854,12 +910,25 @@ window.__ModuleLoader__.load({
           if (!result) return
           setName('')
           setTouched(false)
+          const setup = result.setup
+          if (setup && setup.ok === false) {
+            notify({
+              kind: 'error',
+              text: t('notice.setupFailed', {
+                branch: result.branch,
+                error: (setup.stderr || setup.stdout || '').trim().slice(0, 300) || 'command failed',
+              }),
+            })
+            return
+          }
           const copied = Array.isArray(result.copied) && result.copied.length > 0
           notify({
             kind: 'ok',
             text: copied
               ? t('notice.createdCopied', { branch: result.branch, files: result.copied.join(', ') })
-              : t('notice.created', { branch: result.branch }),
+              : setup && setup.ok
+                ? t('notice.createdSetup', { branch: result.branch })
+                : t('notice.created', { branch: result.branch }),
             action: result.workspaceId
               ? { label: t('action.startSession'), onClick: () => openWorkspace(result.workspaceId) }
               : null,
@@ -876,6 +945,11 @@ window.__ModuleLoader__.load({
           const bridge = typeof globalThis === 'undefined' ? undefined : globalThis.__DSH_DIRECTORY_PICKER__
           if (bridge && typeof bridge.pick === 'function') return bridge.pick()
           return ctx.uiWorkspace.pickDirectory()
+        }
+
+        async function pruneRepo(workspaceId) {
+          const result = await run('/prune', { workspaceId })
+          if (result) notify({ kind: 'ok', text: t('notice.pruned') })
         }
 
         async function abortMerge(workspaceId) {
@@ -1161,6 +1235,18 @@ window.__ModuleLoader__.load({
                       )
                     }
                     chips.push(h('span', { key: 'count', className: 'dshwt-chip plain' }, `${list.length} worktree`))
+                    if (repo.prunable > 0) {
+                      chips.push(
+                        h(
+                          'span',
+                          { key: 'prunable', className: 'dshwt-chip', 'data-state': 'warn', title: t('repo.prunable') },
+                          t('state.prunable', { count: repo.prunable }),
+                        ),
+                      )
+                      chips.push(
+                        h('button', { key: 'prune', className: 'dshwt-btn ghost', disabled: busy, onClick: () => pruneRepo(repo.id) }, t('action.prune')),
+                      )
+                    }
                     return h('div', { className: 'dshwt-head-chips' }, chips)
                   })(),
                 ),
