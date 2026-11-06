@@ -13,6 +13,7 @@ window.__ModuleLoader__.load({
         'panel.title': 'Worktrees',
         'panel.subtitle': 'Create a worktree from a workspace, work in it, then merge it back.',
         'action.addRepo': 'Add repository',
+        'action.picking': 'Choosing…',
         'action.refresh': 'Refresh',
         'action.refreshing': 'Refreshing…',
         'action.create': 'Create worktree',
@@ -34,6 +35,18 @@ window.__ModuleLoader__.load({
         'create.name': 'Name',
         'create.placeholder': 'feat-cap-table',
         'create.hint': 'Letters, digits, dot, dash and underscore. Becomes the branch name.',
+        'create.shortcut': 'Command-Return',
+        'search.placeholder': 'Search branches or paths',
+        'sort.label': 'Sort',
+        'sort.default': 'Git order',
+        'sort.name': 'Name',
+        'sort.ahead': 'Commits ahead',
+        'search.empty': 'No worktrees match “{query}”.',
+        'search.count': '{shown} of {total}',
+        'action.collapseAll': 'Collapse all',
+        'action.expandAll': 'Expand all',
+        'collapse.toggle': 'Collapse or expand {title}',
+        'collapse.autoExpand': 'Expands while searching',
         'create.error.empty': 'Enter a name.',
         'create.error.invalid': 'Use letters, digits, dot, dash or underscore, starting with a letter or digit.',
         'create.error.duplicate': 'A branch with this name already exists in the repository.',
@@ -80,6 +93,7 @@ window.__ModuleLoader__.load({
         'panel.title': 'Worktree',
         'panel.subtitle': '从工作区拉出 worktree，在里面干活，完成后合并回来。',
         'action.addRepo': '添加仓库',
+        'action.picking': '选择文件夹…',
         'action.refresh': '刷新',
         'action.refreshing': '正在刷新…',
         'action.create': '创建 worktree',
@@ -101,6 +115,18 @@ window.__ModuleLoader__.load({
         'create.name': '名称',
         'create.placeholder': 'feat-cap-table',
         'create.hint': '字母、数字、点、短横线、下划线；会成为分支名。',
+        'create.shortcut': '⌘⏎',
+        'search.placeholder': '搜索分支或路径',
+        'sort.label': '排序',
+        'sort.default': '默认顺序',
+        'sort.name': '按名称',
+        'sort.ahead': '按领先提交',
+        'search.empty': '没有匹配“{query}”的 worktree。',
+        'search.count': '{shown} / {total}',
+        'action.collapseAll': '全部折叠',
+        'action.expandAll': '全部展开',
+        'collapse.toggle': '折叠或展开 {title}',
+        'collapse.autoExpand': '搜索时自动展开',
         'create.error.empty': '请输入名称。',
         'create.error.invalid': '只能用字母、数字、点、短横线、下划线，并以字母或数字开头。',
         'create.error.duplicate': '仓库里已经有同名分支了。',
@@ -179,6 +205,30 @@ window.__ModuleLoader__.load({
     // git state: paint the last snapshot immediately, then refresh in place.
     let panelCache = null
 
+    // Per-repository disclosure state, remembered per browser like the shipped
+    // sidebar remembers its own expansion.
+    const COLLAPSED_KEY = 'dsh-worktrees:collapsed'
+
+    function readCollapsed() {
+      try {
+        if (typeof localStorage === 'undefined') return {}
+        const raw = localStorage.getItem(COLLAPSED_KEY)
+        const parsed = raw ? JSON.parse(raw) : {}
+        return parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        return {}
+      }
+    }
+
+    function writeCollapsed(value) {
+      try {
+        if (typeof localStorage === 'undefined') return
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify(value))
+      } catch {
+        // storage may be unavailable; disclosure still works for this mount
+      }
+    }
+
     async function api(path, init) {
       const response = await fetch(API + path, {
         headers: { 'content-type': 'application/json' },
@@ -207,7 +257,8 @@ window.__ModuleLoader__.load({
 .dshwt-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
 .dshwt-btn:disabled{opacity:.45;cursor:default}
 .dshwt-btn.primary{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#fff}
-.dshwt-btn.danger{color:var(--dsw-alias-state-error-primary)}
+.dshwt-btn.danger{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-state-error-primary)}
+.dshwt-btn.danger:hover:not(:disabled){border-color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 7%,transparent)}
 .dshwt-btn.ghost{background:transparent;border-color:transparent;color:var(--dsw-alias-label-secondary)}
 .dshwt-btn.ghost:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
 .dshwt-btn.link{background:none;border:0;padding:2px 0;color:var(--dsw-alias-label-secondary);text-decoration:underline;text-underline-offset:3px}
@@ -215,6 +266,12 @@ window.__ModuleLoader__.load({
 .dshwt-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:visible;margin-bottom:14px}
 .dshwt-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2);border-radius:12px 12px 0 0}
 .dshwt-card-title{margin:0;font-weight:600;font-size:13px}
+.dshwt-repo-toggle{display:inline-flex;align-items:center;gap:6px;appearance:none;background:none;border:0;padding:0;margin:0;font:inherit;font-weight:600;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:5px}
+.dshwt-repo-toggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:3px}
+.dshwt-chevron{width:12px;height:12px;flex:none;transform-origin:50% 50%}
+.dshwt-repo-toggle[aria-expanded="false"] .dshwt-chevron{transform:rotate(-90deg)}
+.dshwt-repo-toggle:disabled{cursor:default}
+.dshwt-repo-toggle:disabled .dshwt-chevron{opacity:.35}
 .dshwt-card-path{color:var(--dsw-alias-label-secondary);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dshwt-list{list-style:none;margin:0;padding:0}
 .dshwt-wt{padding:12px 14px;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:8px}
@@ -222,18 +279,25 @@ window.__ModuleLoader__.load({
 .dshwt-branch{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
 .dshwt-spacer{flex:1 1 auto}
 .dshwt-chip{font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
-.dshwt-chip.ok{color:var(--dsw-alias-state-success-primary);border-color:currentColor}
-.dshwt-chip.warn{color:var(--dsw-alias-state-warn-primary);border-color:currentColor}
+.dshwt-chip::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary);margin-right:5px;vertical-align:1px}
+.dshwt-chip[data-state="warn"]::before{background:var(--dsw-alias-state-warn-primary)}
+.dshwt-chip[data-state="ok"]::before{background:var(--dsw-alias-state-success-primary)}
+.dshwt-chip.plain::before{display:none}
+.dshwt-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.dshwt-search{flex:1 1 auto;min-width:0}
+.dshwt-sort{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.dshwt-kbd{font:inherit;font-size:10px;line-height:1.4;border:1px solid rgba(255,255,255,.45);border-radius:4px;padding:0 4px;margin-left:7px;opacity:.85}
 .dshwt-input{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:7px;padding:5px 9px;font-size:12px;font-family:inherit;min-width:180px}
 .dshwt-input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
 .dshwt-input[aria-invalid="true"]{border-color:var(--dsw-alias-state-error-primary)}
 .dshwt-field{display:flex;flex-direction:column;gap:4px;min-width:200px}
 .dshwt-field-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
-.dshwt-field-error{font-size:11px;color:var(--dsw-alias-state-error-primary)}
+.dshwt-field-error{font-size:11px;color:var(--dsw-alias-label-primary)}
+.dshwt-field-error::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-error-primary);margin-right:5px;vertical-align:1px}
 .dshwt-field-hint{font-size:11px;color:var(--dsw-alias-label-secondary)}
 .dshwt-notice{display:flex;gap:10px;align-items:flex-start;border-radius:9px;padding:9px 12px;margin-bottom:14px;font-size:12px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}
-.dshwt-notice.ok{border-color:var(--dsw-alias-state-success-primary)}
-.dshwt-notice.error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
+.dshwt-notice.ok{border-color:var(--dsw-alias-state-success-primary);border-left-width:3px}
+.dshwt-notice.error{border-color:var(--dsw-alias-state-error-primary);border-left-width:3px;color:var(--dsw-alias-label-primary)}
 .dshwt-notice ul{margin:6px 0 0;padding-left:18px;color:var(--dsw-alias-label-secondary)}
 .dshwt-notice .dshwt-btn{flex:0 0 auto}
 .dshwt-empty{padding:36px 16px;text-align:center;color:var(--dsw-alias-label-secondary);display:flex;flex-direction:column;align-items:center;gap:10px}
@@ -243,7 +307,8 @@ window.__ModuleLoader__.load({
 .dshwt-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:190px;padding:4px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-alias-bg-overlay);box-shadow:0 8px 24px rgba(0,0,0,.18)}
 .dshwt-menu button{display:block;width:100%;text-align:left;appearance:none;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:6px 9px;border-radius:6px;cursor:pointer}
 .dshwt-menu button:hover,.dshwt-menu button:focus-visible{background:var(--dsw-alias-bg-layer-2);outline:none}
-.dshwt-menu button.danger{color:var(--dsw-alias-state-error-primary)}
+.dshwt-menu button.danger{color:var(--dsw-alias-label-primary)}
+.dshwt-menu button.danger::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-error-primary);margin-right:7px}
 .dshwt-confirm{border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);padding:10px 14px;border-radius:0 0 12px 12px;display:flex;flex-direction:column;gap:8px}
 .dshwt-confirm p{margin:0;font-size:12px}
 .dshwt-confirm .dshwt-sub{font-size:11px}
@@ -260,15 +325,17 @@ window.__ModuleLoader__.load({
       const size = props && props.size ? props.size : 18
       const active = Boolean(props && props.active)
       const stroke = active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)'
+      // 14pt grid with a 1.2 stroke, matching the host's sidebar glyphs
+      // (ui-schedule draws on 14 with stroke 1 and currentColor).
       return h(
         'svg',
-        { width: size, height: size, viewBox: '0 0 20 20', fill: 'none', 'aria-hidden': true, style: { display: 'block' } },
-        h('path', { d: 'M5.5 3.5v9.2', stroke, strokeWidth: 1.5, strokeLinecap: 'round' }),
-        h('circle', { cx: 5.5, cy: 3.2, r: 1.7, stroke, strokeWidth: 1.4 }),
-        h('path', { d: 'M5.5 7.1h5.2c1.3 0 2.3 1 2.3 2.3v1.2', stroke, strokeWidth: 1.5, strokeLinecap: 'round' }),
-        h('circle', { cx: 13, cy: 14.2, r: 2.2, stroke, strokeWidth: 1.4 }),
-        h('circle', { cx: 5.5, cy: 14.2, r: 2.2, stroke, strokeWidth: 1.4 }),
-        h('path', { d: 'M5.5 11.4v.6', stroke, strokeWidth: 1.5, strokeLinecap: 'round' }),
+        { width: size, height: size, viewBox: '0 0 14 14', fill: 'none', 'aria-hidden': true, style: { display: 'block' } },
+        h('path', { d: 'M4 2.5v6.1', stroke, strokeWidth: 1.2, strokeLinecap: 'round' }),
+        h('circle', { cx: 4, cy: 2.3, r: 1.2, stroke, strokeWidth: 1.2 }),
+        h('path', { d: 'M4 5h3.6c.9 0 1.6.7 1.6 1.6v.9', stroke, strokeWidth: 1.2, strokeLinecap: 'round' }),
+        h('circle', { cx: 9.2, cy: 10, r: 1.6, stroke, strokeWidth: 1.2 }),
+        h('circle', { cx: 4, cy: 10, r: 1.6, stroke, strokeWidth: 1.2 }),
+        h('path', { d: 'M4 8.2v.2', stroke, strokeWidth: 1.2, strokeLinecap: 'round' }),
       )
     }
 
@@ -400,10 +467,10 @@ window.__ModuleLoader__.load({
             h('span', { key: 'sessions', className: 'dshwt-chip' }, worktree.sessionCount === 1 ? t('state.sessions.one') : t('state.sessions', { count: worktree.sessionCount })),
           )
         }
-        if (worktree.dirty > 0) chips.push(h('span', { key: 'dirty', className: 'dshwt-chip warn' }, t('state.dirty')))
+        if (worktree.dirty > 0) chips.push(h('span', { key: 'dirty', className: 'dshwt-chip', 'data-state': 'warn' }, t('state.dirty')))
         if (worktree.ahead > 0) chips.push(h('span', { key: 'ahead', className: 'dshwt-chip' }, t('state.ahead', { count: worktree.ahead })))
         if (worktree.behind > 0) chips.push(h('span', { key: 'behind', className: 'dshwt-chip' }, t('state.behind', { count: worktree.behind })))
-        if (worktree.merged) chips.push(h('span', { key: 'merged', className: 'dshwt-chip ok' }, t('state.merged')))
+        if (worktree.merged) chips.push(h('span', { key: 'merged', className: 'dshwt-chip', 'data-state': 'ok' }, t('state.merged')))
         if (!worktree.workspaceId) chips.push(h('span', { key: 'unregistered', className: 'dshwt-chip' }, t('state.unregistered')))
         if (!worktree.branch) chips.push(h('span', { key: 'detached', className: 'dshwt-chip' }, t('state.detached')))
 
@@ -484,8 +551,12 @@ window.__ModuleLoader__.load({
         const [busy, setBusy] = React.useState(false)
         const [notice, setNotice] = React.useState(null)
         const [restoring, setRestoring] = React.useState(false)
+        const [picking, setPicking] = React.useState(false)
         const [name, setName] = React.useState('')
         const [touched, setTouched] = React.useState(false)
+        const [query, setQuery] = React.useState('')
+        const [sort, setSort] = React.useState('default')
+        const [collapsed, setCollapsed] = React.useState(readCollapsed)
         const [parent, setParent] = React.useState('')
         const [, forceRender] = React.useReducer((value) => value + 1, 0)
 
@@ -553,6 +624,40 @@ window.__ModuleLoader__.load({
 
         const repos = data ? data.repos : []
         const grouped = data && data.settings ? data.settings.grouping === 'worktree' : true
+        const needle = query.trim().toLowerCase()
+        const sortList = (list) => {
+          if (sort === 'name') return [...list].sort((a, b) => String(a.branch || '').localeCompare(String(b.branch || '')))
+          if (sort === 'ahead') return [...list].sort((a, b) => b.ahead - a.ahead)
+          return list
+        }
+        const visible = repos
+          .map((repo) => {
+            const repoHit = !needle || repo.title.toLowerCase().includes(needle) || repo.path.toLowerCase().includes(needle)
+            const matches = repoHit
+              ? repo.worktrees
+              : repo.worktrees.filter(
+                  (worktree) => String(worktree.branch || '').toLowerCase().includes(needle) || worktree.path.toLowerCase().includes(needle),
+                )
+            return { repo, list: sortList(matches) }
+          })
+          .filter((entry) => !needle || entry.repo.title.toLowerCase().includes(needle) || entry.repo.path.toLowerCase().includes(needle) || entry.list.length > 0)
+        const totalWorktrees = repos.reduce((sum, repo) => sum + repo.worktrees.length, 0)
+        const shownWorktrees = visible.reduce((sum, entry) => sum + entry.list.length, 0)
+
+        function toggleAll() {
+          const anyExpanded = repos.some((repo) => !collapsed[repo.id])
+          const next = anyExpanded ? Object.fromEntries(repos.map((repo) => [repo.id, true])) : {}
+          setCollapsed(next)
+          writeCollapsed(next)
+        }
+
+        function toggleRepo(repoId) {
+          setCollapsed((current) => {
+            const next = { ...current, [repoId]: !current[repoId] }
+            writeCollapsed(next)
+            return next
+          })
+        }
 
         function nameError(value) {
           const trimmed = value.trim()
@@ -589,13 +694,29 @@ window.__ModuleLoader__.load({
           })
         }
 
+        /**
+         * The Desktop app exposes the OS chooser through its preload bridge
+         * (`__DSH_DIRECTORY_PICKER__.pick()`), which is what the shipped
+         * directory-flow driver uses there; the Remote is the fallback for a
+         * browser-only host.
+         */
+        function pickDirectory() {
+          const bridge = typeof globalThis === 'undefined' ? undefined : globalThis.__DSH_DIRECTORY_PICKER__
+          if (bridge && typeof bridge.pick === 'function') return bridge.pick()
+          return ctx.uiWorkspace.pickDirectory()
+        }
+
         async function addRepository() {
+          if (picking) return
           let path
+          setPicking(true)
           try {
-            path = await ctx.uiWorkspace.pickDirectory()
+            path = await pickDirectory()
           } catch (problem) {
             setNotice({ kind: 'error', text: problem.message || String(problem) })
             return
+          } finally {
+            setPicking(false)
           }
           if (!path) return
           const result = await run('/adopt', { path })
@@ -688,7 +809,7 @@ window.__ModuleLoader__.load({
                     onChange: (event) => setName(event.target.value),
                     onBlur: () => setTouched(true),
                     onKeyDown: (event) => {
-                      if (event.key === 'Enter') create()
+                      if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) create()
                     },
                   }),
                   h(
@@ -697,7 +818,52 @@ window.__ModuleLoader__.load({
                     currentError || t('create.hint'),
                   ),
                 ),
-                h('button', { className: 'dshwt-btn primary', disabled: busy || !parent || !name.trim() || Boolean(nameError(name)), onClick: create }, t('action.create')),
+                h(
+                  'button',
+                  { className: 'dshwt-btn primary', disabled: busy || !parent || !name.trim() || Boolean(nameError(name)), onClick: create, title: t('create.shortcut') },
+                  t('action.create'),
+                  h('kbd', { className: 'dshwt-kbd' }, t('create.shortcut')),
+                ),
+              ),
+            ),
+          )
+        }
+
+        if (data && repos.length > 0) {
+          body.push(
+            h(
+              'div',
+              { key: 'toolbar', className: 'dshwt-toolbar' },
+              h('input', {
+                className: 'dshwt-input dshwt-search',
+                type: 'search',
+                placeholder: t('search.placeholder'),
+                'aria-label': t('search.placeholder'),
+                value: query,
+                onChange: (event) => setQuery(event.target.value),
+              }),
+              h(
+                'label',
+                { className: 'dshwt-sort' },
+                h('span', { className: 'dshwt-field-label' }, t('sort.label')),
+                h(
+                  'select',
+                  { className: 'dshwt-input', value: sort, onChange: (event) => setSort(event.target.value) },
+                  h('option', { value: 'default' }, t('sort.default')),
+                  h('option', { value: 'name' }, t('sort.name')),
+                  h('option', { value: 'ahead' }, t('sort.ahead')),
+                ),
+              ),
+              needle ? h('span', { className: 'dshwt-chip plain' }, t('search.count', { shown: shownWorktrees, total: totalWorktrees })) : null,
+              h(
+                'button',
+                {
+                  className: 'dshwt-btn ghost',
+                  disabled: busy || Boolean(needle),
+                  title: needle ? t('collapse.autoExpand') : undefined,
+                  onClick: toggleAll,
+                },
+                repos.some((repo) => !collapsed[repo.id]) ? t('action.collapseAll') : t('action.expandAll'),
               ),
             ),
           )
@@ -719,11 +885,22 @@ window.__ModuleLoader__.load({
               { key: 'empty', className: 'dshwt-empty' },
               h('strong', null, t('empty.title')),
               h('p', null, t('empty.body')),
-              h('button', { className: 'dshwt-btn primary', disabled: busy, onClick: addRepository }, t('action.addRepo')),
+              h('button', { className: 'dshwt-btn primary', disabled: busy || picking, onClick: addRepository }, picking ? t('action.picking') : t('action.addRepo')),
+            ),
+          )
+        } else if (needle && visible.length === 0) {
+          body.push(
+            h(
+              'div',
+              { key: 'search-empty', className: 'dshwt-empty', role: 'status' },
+              h('strong', null, t('search.empty', { query })),
             ),
           )
         } else {
-          for (const repo of repos) {
+          for (const { repo, list } of visible) {
+            // A search always reveals matches; the saved state only governs
+            // ordinary browsing.
+            const folded = !needle && Boolean(collapsed[repo.id])
             body.push(
               h(
                 'section',
@@ -734,17 +911,44 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { style: { minWidth: 0 } },
-                    h('h2', { className: 'dshwt-card-title' }, repo.title),
+                    h(
+                      'h2',
+                      { className: 'dshwt-card-title' },
+                      h(
+                        'button',
+                        {
+                          className: 'dshwt-repo-toggle',
+                          'aria-expanded': folded ? 'false' : 'true',
+                          'aria-controls': `dshwt-list-${repo.id}`,
+                          disabled: Boolean(needle),
+                          title: needle ? t('collapse.autoExpand') : t('collapse.toggle', { title: repo.title }),
+                          onClick: () => toggleRepo(repo.id),
+                        },
+                        h(
+                          'svg',
+                          { className: 'dshwt-chevron', viewBox: '0 0 12 12', 'aria-hidden': true },
+                          h('path', {
+                            d: 'M3 4.5 6 7.5 9 4.5',
+                            fill: 'none',
+                            stroke: 'currentColor',
+                            strokeWidth: 1.4,
+                            strokeLinecap: 'round',
+                            strokeLinejoin: 'round',
+                          }),
+                        ),
+                        repo.title,
+                      ),
+                    ),
                     h('div', { className: 'dshwt-card-path', title: repo.path }, repo.path),
                   ),
-                  h('span', { className: 'dshwt-chip' }, `${repo.worktrees.length} worktree`),
+                  h('span', { className: 'dshwt-chip plain' }, `${list.length} worktree`),
                 ),
                 h(
                   'ul',
-                  { className: 'dshwt-list' },
-                  repo.worktrees.length === 0
+                  { className: 'dshwt-list', id: `dshwt-list-${repo.id}`, hidden: folded },
+                  list.length === 0
                     ? h('li', { className: 'dshwt-wt' }, h('div', { className: 'dshwt-card-path' }, t('repo.empty')))
-                    : repo.worktrees.map((worktree) =>
+                    : list.map((worktree) =>
                         h(WorktreeRow, {
                           key: worktree.path,
                           repo,
@@ -804,7 +1008,16 @@ window.__ModuleLoader__.load({
 
         return h(
           'div',
-          { className: 'dshwt-root', 'aria-busy': loading },
+          {
+            className: 'dshwt-root',
+            'aria-busy': loading,
+            onKeyDown: (event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                create()
+              }
+            },
+          },
           h('style', null, CSS),
           h(
             'div',
@@ -821,8 +1034,8 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'dshwt-row' },
-                loading && data ? h('span', { className: 'dshwt-chip', role: 'status' }, t('action.refreshing')) : null,
-                h('button', { className: 'dshwt-btn', disabled: busy, onClick: addRepository }, t('action.addRepo')),
+                loading && data ? h('span', { className: 'dshwt-chip plain', role: 'status' }, t('action.refreshing')) : null,
+                h('button', { className: 'dshwt-btn', disabled: busy || picking, onClick: addRepository }, picking ? t('action.picking') : t('action.addRepo')),
                 h('button', { className: 'dshwt-btn ghost', disabled: busy, onClick: reload }, t('action.refresh')),
               ),
             ),
