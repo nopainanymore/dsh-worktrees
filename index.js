@@ -11,15 +11,17 @@
  * UI uses, so the existing sidebar keeps working unchanged.
  */
 import { execFile } from 'node:child_process'
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, sep } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 
 const API_PREFIX = '/dsh-worktrees/api'
 const POOL_DIR = '.agents/worktrees'
 const DEFAULT_SETTINGS = {
   grouping: 'worktree',
   registerOnCreate: true,
+  branchPrefix: '',
+  copyIgnored: ['.env', '.env.local'],
 }
 const SESSION_FILE_NAME = 'worktrees'
 
@@ -34,6 +36,14 @@ function pickSettings(source) {
   const out = {}
   if (source.grouping === 'worktree' || source.grouping === 'workspace') out.grouping = source.grouping
   if (typeof source.registerOnCreate === 'boolean') out.registerOnCreate = source.registerOnCreate
+  if (typeof source.branchPrefix === 'string' && /^[A-Za-z0-9._/-]{0,40}$/.test(source.branchPrefix)) {
+    out.branchPrefix = source.branchPrefix
+  }
+  if (Array.isArray(source.copyIgnored)) {
+    out.copyIgnored = source.copyIgnored.filter(
+      (value) => typeof value === 'string' && value.length > 0 && value.length < 200 && !value.startsWith('/') && !value.includes('..'),
+    )
+  }
   return out
 }
 
@@ -228,6 +238,21 @@ async function upstreamStatus(root) {
   return { upstream, aheadUpstream, behindUpstream, defaultBranch }
 }
 
+/**
+ * Last commit of one working tree, for "how long has this been idle" and for
+ * ordering. One extra `git log` per worktree, run in parallel with the probes.
+ */
+async function lastCommitOf(directory) {
+  try {
+    const { stdout } = await git(directory, ['log', '-1', '--format=%H%x1f%ct%x1f%s'])
+    const [sha, seconds, subject] = stdout.trim().split('\u001f')
+    if (!sha) return null
+    return { sha, time: Number(seconds) || 0, subject: subject || '' }
+  } catch {
+    return null
+  }
+}
+
 async function isAncestor(root, branch) {
   try {
     await git(root, ['merge-base', '--is-ancestor', branch, 'HEAD'])
@@ -368,9 +393,10 @@ export function apply(ctx, config) {
     const registered = registeredWorkspaces()
     const worktrees = await mapLimit(entries.slice(1), 8, async (entry) => {
       const path = await canonical(entry.path)
-      const [counts, dirty] = await Promise.all([
+      const [counts, dirty, commit] = await Promise.all([
         entry.branch ? aheadBehind(root, entry.branch) : Promise.resolve(null),
         dirtyStatus(path),
+        lastCommitOf(path),
       ])
       const child = registered.find((candidate) => candidate.path === path)
       return {
@@ -381,6 +407,7 @@ export function apply(ctx, config) {
         behind: counts ? counts.behind : 0,
         dirty: dirty.count,
         dirtyFiles: dirty.files,
+        lastCommit: commit,
         // `ahead === 0` already means every commit of the branch is reachable
         // from HEAD, so the extra `merge-base --is-ancestor` call is redundant.
         merged: counts ? counts.ahead === 0 : false,
@@ -456,19 +483,67 @@ export function apply(ctx, config) {
     if (!info) throw httpError(400, '该工作区不是 Git 仓库')
     if (info.linked) throw httpError(400, '请在一个仓库根工作区上创建 worktree，而不是在已有 worktree 里')
     const root = info.self
+    const current = await settings()
     const name = sanitizeName(body.name)
+    const branch = `${current.branchPrefix}${name}`
+    if (!/^[A-Za-z0-9._/-]{1,120}$/.test(branch) || branch.endsWith('/') || branch.includes('//')) {
+      throw httpError(400, '分支名不合法，检查配置里的 branchPrefix')
+    }
     const target = join(root, POOL_DIR, name)
-    if (await branchExists(root, name)) throw httpError(409, `分支 ${name} 已存在`)
+    if (await branchExists(root, branch)) throw httpError(409, `分支 ${branch} 已存在`)
     if (await isDirectory(target)) throw httpError(409, `目录已存在：${target}`)
-    await git(root, ['worktree', 'add', '-b', name, target, 'HEAD'])
+
+    const from = typeof body.from === 'string' && body.from.trim() ? body.from.trim() : 'HEAD'
+    let baseCommit
+    try {
+      baseCommit = (await git(root, ['rev-parse', '--verify', `${from}^{commit}`])).stdout.trim()
+    } catch {
+      throw httpError(400, `找不到基线 ${from}（需要本地分支、tag 或提交）`)
+    }
+
+    await git(root, ['worktree', 'add', '-b', branch, target, baseCommit])
     invalidateTree()
     await ensurePoolIgnore(root)
+    const copied = await copyIgnoredFiles(root, target, current.copyIgnored)
     let workspaceId = null
-    const current = await settings()
     if (current.registerOnCreate && current.grouping === 'worktree') {
       workspaceId = await registerWorktree(target, `worktree: ${name}`)
     }
-    return { path: target, branch: name, workspaceId }
+    return { path: target, branch, workspaceId, from, baseCommit, copied }
+  }
+
+  /**
+   * `git worktree add` never carries untracked files, so a fresh checkout has
+   * no local configuration. Copy the configured relative paths when the source
+   * has them; a missing source file is not an error.
+   */
+  async function isGitIgnored(root, relative) {
+    try {
+      await git(root, ['check-ignore', '-q', '--', relative])
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async function copyIgnoredFiles(sourceRoot, targetRoot, patterns) {
+    const copied = []
+    for (const relative of patterns || []) {
+      // Only ignore-listed files may be copied: anything else would make the
+      // fresh worktree dirty the moment it exists and block merge/remove.
+      if (!(await isGitIgnored(sourceRoot, relative))) continue
+      const from = join(sourceRoot, relative)
+      const to = join(targetRoot, relative)
+      try {
+        if (!(await stat(from)).isFile()) continue
+        await mkdir(dirname(to), { recursive: true })
+        await copyFile(from, to)
+        copied.push(relative)
+      } catch {
+        // a missing or unreadable source file is simply not copied
+      }
+    }
+    return copied
   }
 
   async function ensurePoolIgnore(root) {

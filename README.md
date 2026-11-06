@@ -19,7 +19,9 @@
 - 创建、合并、移除、加入侧边栏均走同一套 Host 逻辑。
 - 名称在输入时即时校验（`[A-Za-z0-9._-]`，成为分支名），错误显示在字段下方。
 - 创建成功后提示条里直接给「在这里开始会话」，接上下一步；`⌘⏎`（Windows/Linux 为 Ctrl+Enter）在面板任意位置创建。
-- 列表上方有搜索（分支/路径/仓库名）和排序（默认 git 顺序 / 名称 / 领先提交数）。
+- 创建时可指定**基线**（`HEAD` / 分支 / tag / 提交），并可从主检出复制 `.env` 这类被忽略的本地配置。
+- 列表上方有搜索（分支/路径/仓库名）和排序（默认 git 顺序 / 名称 / 领先提交数 / 最近提交）。
+- 每行显示最后一次提交的相对时间；移除确认会提示该工作树里还有几个会话。
 - 顶部「添加仓库」直接调用系统目录选择器，把 Git 仓库注册成工作区（走官方 `workspaceRegistry`），
   不用切回侧边栏；选到仓库子目录时会自动落到仓库根，已注册则返回现有工作区。
 
@@ -62,7 +64,14 @@ dsh plugin --profile web add /absolute/path/to/dsh-worktrees
   config:
     grouping: worktree        # worktree | workspace
     registerOnCreate: true    # 创建时是否自动注册为子工作区
+    branchPrefix: ''          # 可选分支前缀，如 'wt/'（worktree 目录名仍是输入名）
+    copyIgnored:              # 创建后从主检出复制这些「被 gitignore 忽略」的文件
+      - .env
+      - .env.local
 ```
+
+`copyIgnored` 只复制 `git check-ignore` 认定为忽略的文件——未忽略的文件不复制，否则新工作树一创建
+就是脏的，合并/移除都会被拦下。
 
 `grouping` 也可以在面板顶部切换，切换会写进 `~/.dsh/worktrees/settings.json`（运行时设置优先于上面
 的默认值），并立即同步：切到 `worktree` 自动注册 `.agents/worktrees/` 池里的 worktree，切到 `workspace` 取消这些自动注册

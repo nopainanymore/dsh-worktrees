@@ -36,6 +36,8 @@ window.__ModuleLoader__.load({
         'create.workspace': 'Repository',
         'create.name': 'Name',
         'create.placeholder': 'feat-cap-table',
+        'create.from': 'Base',
+        'create.from.placeholder': 'HEAD, branch, tag or commit',
         'create.hint': 'Letters, digits, dot, dash and underscore. Becomes the branch name.',
         'create.shortcut': 'Command-Return',
         'search.placeholder': 'Search branches or paths',
@@ -43,6 +45,7 @@ window.__ModuleLoader__.load({
         'sort.default': 'Git order',
         'sort.name': 'Name',
         'sort.ahead': 'Commits ahead',
+        'sort.recent': 'Recently updated',
         'search.empty': 'No worktrees match “{query}”.',
         'search.count': '{shown} of {total}',
         'action.collapseAll': 'Collapse all',
@@ -53,6 +56,7 @@ window.__ModuleLoader__.load({
         'create.error.invalid': 'Use letters, digits, dot, dash or underscore, starting with a letter or digit.',
         'create.error.duplicate': 'A branch with this name already exists in the repository.',
         'notice.created': 'Created {branch}.',
+        'notice.createdCopied': 'Created {branch}; copied {files}.',
         'notice.merged': 'Merged {branch} into the workspace.',
         'notice.alreadyMerged': 'Already merged — nothing to bring over.',
         'notice.removed': 'Removed the worktree.',
@@ -77,6 +81,7 @@ window.__ModuleLoader__.load({
         'notice.finishedKeptBranch': 'Finished {branch}, but the branch was kept: {error}',
         'remove.title': 'Remove worktree {branch}?',
         'remove.body': 'Deletes {path}. The branch is kept unless you choose otherwise.',
+        'remove.sessions': 'This worktree still has {count} sessions.',
         'remove.deleteBranch': 'Also delete the branch {branch} (merged already)',
         'remove.branchKept': 'The branch {branch} still has unmerged commits and is kept.',
         'restore.title': 'Restore defaults?',
@@ -92,6 +97,7 @@ window.__ModuleLoader__.load({
         'repo.upstreamDetail': 'Against {upstream}: {ahead} ahead, {behind} behind',
         'repo.notDefault': 'The default branch is {default}.',
         'state.sessions': '{count} sessions',
+        'state.lastCommit': 'last commit {when}',
         'state.sessions.one': '1 session',
         'loading.title': 'Loading worktrees…',
         'loading.body': 'Reading git worktree metadata and working-tree state.',
@@ -130,6 +136,8 @@ window.__ModuleLoader__.load({
         'create.workspace': '仓库',
         'create.name': '名称',
         'create.placeholder': 'feat-cap-table',
+        'create.from': '基线',
+        'create.from.placeholder': 'HEAD / 分支 / tag / 提交',
         'create.hint': '字母、数字、点、短横线、下划线；会成为分支名。',
         'create.shortcut': '⌘⏎',
         'search.placeholder': '搜索分支或路径',
@@ -137,6 +145,7 @@ window.__ModuleLoader__.load({
         'sort.default': '默认顺序',
         'sort.name': '按名称',
         'sort.ahead': '按领先提交',
+        'sort.recent': '按最近提交',
         'search.empty': '没有匹配“{query}”的 worktree。',
         'search.count': '{shown} / {total}',
         'action.collapseAll': '全部折叠',
@@ -147,6 +156,7 @@ window.__ModuleLoader__.load({
         'create.error.invalid': '只能用字母、数字、点、短横线、下划线，并以字母或数字开头。',
         'create.error.duplicate': '仓库里已经有同名分支了。',
         'notice.created': '已创建 {branch}。',
+        'notice.createdCopied': '已创建 {branch}；已复制 {files}。',
         'notice.merged': '已把 {branch} 合并回工作区。',
         'notice.alreadyMerged': '已经合并过了，没有需要带回来的改动。',
         'notice.removed': '已移除 worktree。',
@@ -171,6 +181,7 @@ window.__ModuleLoader__.load({
         'notice.finishedKeptBranch': '已完成 {branch}，但分支保留：{error}',
         'remove.title': '移除 worktree {branch}？',
         'remove.body': '会删除 {path}；分支默认保留，除非你勾选下面的选项。',
+        'remove.sessions': '这个 worktree 还有 {count} 个会话。',
         'remove.deleteBranch': '同时删除分支 {branch}（已合并）',
         'remove.branchKept': '分支 {branch} 还有未合并的提交，会保留。',
         'restore.title': '恢复默认？',
@@ -186,6 +197,7 @@ window.__ModuleLoader__.load({
         'repo.upstreamDetail': '相对 {upstream}：领先 {ahead}，落后 {behind}',
         'repo.notDefault': '默认分支是 {default}。',
         'state.sessions': '{count} 个会话',
+        'state.lastCommit': '最后提交 {when}',
         'state.sessions.one': '1 个会话',
         'loading.title': '正在加载 worktree…',
         'loading.body': '读取 git worktree 元数据与工作区状态。',
@@ -228,6 +240,27 @@ window.__ModuleLoader__.load({
     }
 
     const t = (key, vars) => translate(key, vars)
+
+    function relativeTime(seconds) {
+      if (!seconds) return ''
+      try {
+        const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+        const diff = Math.round(seconds - Date.now() / 1000)
+        const units = [
+          ['year', 31536000],
+          ['month', 2592000],
+          ['day', 86400],
+          ['hour', 3600],
+          ['minute', 60],
+        ]
+        for (const [unit, size] of units) {
+          if (Math.abs(diff) >= size) return formatter.format(Math.round(diff / size), unit)
+        }
+        return formatter.format(diff, 'second')
+      } catch {
+        return ''
+      }
+    }
 
     // Remounting the panel must not blank the list while the Host recomputes
     // git state: paint the last snapshot immediately, then refresh in place.
@@ -307,6 +340,7 @@ window.__ModuleLoader__.load({
 .dshwt-wt-main{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
 .dshwt-branch{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
 .dshwt-spacer{flex:1 1 auto}
+.dshwt-meta{font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .dshwt-chip{font-size:11px;line-height:1.5;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .dshwt-chip::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary);margin-right:5px;vertical-align:1px}
 .dshwt-chip[data-state="warn"]::before{background:var(--dsw-alias-state-warn-primary)}
@@ -534,6 +568,9 @@ window.__ModuleLoader__.load({
             { className: 'dshwt-wt-main' },
             h('span', { className: 'dshwt-branch', title: worktree.path }, worktree.branch || 'detached'),
             chips,
+            worktree.lastCommit && worktree.lastCommit.time
+              ? h('span', { className: 'dshwt-meta', title: worktree.lastCommit.subject || '' }, t('state.lastCommit', { when: relativeTime(worktree.lastCommit.time) }))
+              : null,
             h('span', { className: 'dshwt-spacer' }),
             h(
               'button',
@@ -599,6 +636,9 @@ window.__ModuleLoader__.load({
                 { className: 'dshwt-confirm', ref: confirmRef, role: 'group', 'aria-label': t('remove.title', { branch: worktree.branch }) },
                 h('p', null, t('remove.title', { branch: worktree.branch || worktree.path })),
                 h('p', { className: 'dshwt-sub' }, t('remove.body', { path: worktree.path })),
+                worktree.sessionCount > 0
+                  ? h('p', { className: 'dshwt-sub' }, t('remove.sessions', { count: worktree.sessionCount }))
+                  : null,
                 worktree.merged && worktree.branch
                   ? h(
                       'label',
@@ -629,6 +669,7 @@ window.__ModuleLoader__.load({
         const [restoring, setRestoring] = React.useState(false)
         const [picking, setPicking] = React.useState(false)
         const [name, setName] = React.useState('')
+        const [fromRef, setFromRef] = React.useState('')
         const [touched, setTouched] = React.useState(false)
         const [query, setQuery] = React.useState('')
         const [sort, setSort] = React.useState('default')
@@ -704,6 +745,9 @@ window.__ModuleLoader__.load({
         const sortList = (list) => {
           if (sort === 'name') return [...list].sort((a, b) => String(a.branch || '').localeCompare(String(b.branch || '')))
           if (sort === 'ahead') return [...list].sort((a, b) => b.ahead - a.ahead)
+          if (sort === 'recent') {
+            return [...list].sort((a, b) => (b.lastCommit ? b.lastCommit.time : 0) - (a.lastCommit ? a.lastCommit.time : 0))
+          }
           return list
         }
         const visible = repos
@@ -757,13 +801,16 @@ window.__ModuleLoader__.load({
           setTouched(true)
           const problem = nameError(name)
           if (problem) return
-          const result = await run('/create', { workspaceId: parent, name: name.trim() })
+          const result = await run('/create', { workspaceId: parent, name: name.trim(), from: fromRef.trim() || 'HEAD' })
           if (!result) return
           setName('')
           setTouched(false)
+          const copied = Array.isArray(result.copied) && result.copied.length > 0
           notify({
             kind: 'ok',
-            text: t('notice.created', { branch: result.branch }),
+            text: copied
+              ? t('notice.createdCopied', { branch: result.branch, files: result.copied.join(', ') })
+              : t('notice.created', { branch: result.branch }),
             action: result.workspaceId
               ? { label: t('action.startSession'), onClick: () => openWorkspace(result.workspaceId) }
               : null,
@@ -895,6 +942,18 @@ window.__ModuleLoader__.load({
                   ),
                 ),
                 h(
+                  'label',
+                  { className: 'dshwt-field' },
+                  h('span', { className: 'dshwt-field-label' }, t('create.from')),
+                  h('input', {
+                    className: 'dshwt-input',
+                    placeholder: t('create.from.placeholder'),
+                    value: fromRef,
+                    disabled: busy,
+                    onChange: (event) => setFromRef(event.target.value),
+                  }),
+                ),
+                h(
                   'button',
                   { className: 'dshwt-btn primary', disabled: busy || !parent || !name.trim() || Boolean(nameError(name)), onClick: create, title: t('create.shortcut') },
                   t('action.create'),
@@ -928,6 +987,7 @@ window.__ModuleLoader__.load({
                   h('option', { value: 'default' }, t('sort.default')),
                   h('option', { value: 'name' }, t('sort.name')),
                   h('option', { value: 'ahead' }, t('sort.ahead')),
+                  h('option', { value: 'recent' }, t('sort.recent')),
                 ),
               ),
               needle ? h('span', { className: 'dshwt-chip plain' }, t('search.count', { shown: shownWorktrees, total: totalWorktrees })) : null,
