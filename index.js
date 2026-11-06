@@ -783,6 +783,74 @@ export function apply(ctx, config) {
     }
   }
 
+  async function continueMerge(body) {
+    const workspace = workspaceById(body.workspaceId)
+    if (!workspace) throw httpError(404, '工作区不存在')
+    const info = await mainRootOf(workspace.path)
+    if (!info || info.linked) throw httpError(400, '该工作区不是主检出')
+    const pending = await mergeState(info.self)
+    if (!pending.merging) return { ok: true, merged: false, message: '没有进行中的合并' }
+    if (pending.conflicts.length > 0) {
+      return { ok: false, reason: 'unresolved', message: '还有未解决的冲突文件', conflicts: pending.conflicts }
+    }
+    const committed = await runCommand(await resolveGit(), ['commit', '--no-edit'], info.self)
+    if (!committed.ok) {
+      return {
+        ok: false,
+        reason: 'commit-failed',
+        message: (committed.stderr || committed.stdout || 'git commit failed').slice(0, 2000),
+      }
+    }
+    invalidateTree()
+    return { ok: true, merged: true, output: committed.stdout.slice(0, 1000) }
+  }
+
+  /**
+   * Clean up every worktree whose branch is already contained in the main
+   * checkout. Only already-merged, clean, pooled checkouts qualify, so the pass
+   * never merges anything and never discards uncommitted work.
+   */
+  async function finishBatch(body) {
+    const workspace = workspaceById(body.workspaceId)
+    if (!workspace) throw httpError(404, '工作区不存在')
+    const info = await mainRootOf(workspace.path)
+    if (!info || info.linked) throw httpError(400, '该工作区不是主检出')
+    const mainDirty = await dirtyStatus(info.self)
+    if (mainDirty.count !== 0) {
+      return { ok: false, reason: 'dirty', message: '主工作区有未提交的改动，先提交或暂存', files: mainDirty.files }
+    }
+    const finished = []
+    const skipped = []
+    for (const entry of info.entries.slice(1)) {
+      if (entry.prunable) {
+        skipped.push({ branch: entry.branch, path: entry.path, reason: 'stale' })
+        continue
+      }
+      if (!entry.branch) {
+        skipped.push({ branch: null, path: entry.path, reason: 'detached' })
+        continue
+      }
+      if (!isManagedPath(entry.path)) {
+        skipped.push({ branch: entry.branch, path: entry.path, reason: 'outside-pool' })
+        continue
+      }
+      const dirty = await dirtyStatus(entry.path)
+      if (dirty.count !== 0) {
+        skipped.push({ branch: entry.branch, path: entry.path, reason: 'dirty' })
+        continue
+      }
+      const counts = await aheadBehind(info.self, entry.branch)
+      if (!counts || counts.ahead > 0) {
+        skipped.push({ branch: entry.branch, path: entry.path, reason: 'unmerged' })
+        continue
+      }
+      const result = await finishWorktree({ path: entry.path })
+      if (result.ok) finished.push(entry.branch)
+      else skipped.push({ branch: entry.branch, path: entry.path, reason: result.message || result.reason })
+    }
+    return { ok: true, finished, skipped }
+  }
+
   async function pushWorktree(body) {
     const { entry } = await locate(body.path)
     if (!entry.branch) throw httpError(400, '该 worktree 处于 detached HEAD，无法推送')
@@ -1053,6 +1121,14 @@ export function apply(ctx, config) {
           send(res, 200, await removeWorktree(body))
           return
         }
+        if (route === '/continue-merge') {
+          send(res, 200, await continueMerge(body))
+          return
+        }
+        if (route === '/finish-batch') {
+          send(res, 200, await finishBatch(body))
+          return
+        }
         if (route === '/push') {
           send(res, 200, await pushWorktree(body))
           return
@@ -1110,14 +1186,14 @@ export function apply(ctx, config) {
   const worktreeTool = {
     name: 'worktree',
     description:
-      'Manage Git worktrees of the current repository. list shows every worktree with its branch, divergence and uncommitted state; create makes a new branch and checkout under .agents/worktrees; sync rebases a worktree onto the current branch of the main checkout; merge brings a worktree branch back into the main checkout (conflicts are left in the main workspace). Cleanup (removing a worktree directory or deleting a branch) is only available in the Worktrees panel.',
+      'Manage Git worktrees of the current repository. list shows every worktree with its branch, divergence and uncommitted state; create makes a new branch and checkout under .agents/worktrees; sync rebases a worktree onto the current branch of the main checkout; merge brings a worktree branch back into the main checkout (conflicts are left in the main workspace); prune drops git records whose checkout directory is gone. Removing a worktree directory or deleting a branch is only available in the Worktrees panel.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'create', 'sync', 'merge'],
+          enum: ['list', 'create', 'sync', 'merge', 'prune'],
           description: 'list | create | sync | merge',
         },
         name: { type: 'string', description: 'create: worktree and branch name' },
@@ -1168,6 +1244,13 @@ ${rows.join('\n')}` : `No worktrees in ${info.self}`,
         if (!workspaceId) throw new Error(`${info.self} is not a registered workspace; add it in the Worktrees panel first`)
         const created = await createWorktree({ workspaceId, name: args.name, from: args.from })
         return { ok: true, message: `Created ${created.branch} at ${created.path}` }
+      }
+
+      if (args.action === 'prune') {
+        const workspaceId = await workspaceIdForPath(info.self)
+        if (!workspaceId) throw new Error(`${info.self} is not a registered workspace`)
+        const pruned = await pruneWorktrees({ workspaceId })
+        return { ok: pruned.ok !== false, message: pruned.ok === false ? pruned.message : pruned.output || 'Nothing to prune' }
       }
 
       if (typeof args.path !== 'string' || args.path.length === 0) throw new Error(`${args.action} requires path`)

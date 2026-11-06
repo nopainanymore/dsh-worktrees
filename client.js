@@ -82,6 +82,14 @@ window.__ModuleLoader__.load({
         'merge.inProgress': 'The main checkout has an unfinished merge ({count} conflicted files).',
         'merge.openMain': 'Open main workspace',
         'merge.abort': 'Abort merge',
+        'merge.continue': 'Mark resolved, continue',
+        'action.finishBatch': 'Finish merged ({count})',
+        'action.confirmFinishBatch': 'Finish all',
+        'batch.title': 'Finish {count} merged worktrees?',
+        'batch.body': 'Only clean, already-merged checkouts qualify. Each directory, branch and sidebar entry is removed; nothing is merged by this pass.',
+        'notice.mergeContinued': 'Merge completed.',
+        'notice.mergeNoPending': 'There was no merge in progress.',
+        'notice.batch': 'Finished {count}; skipped {skipped}.',
         'notice.aborted': 'Merge aborted.',
         'notice.nothingToAbort': 'There was no merge in progress.',
         'finish.title': 'Finish {branch}?',
@@ -206,6 +214,14 @@ window.__ModuleLoader__.load({
         'merge.inProgress': '主工作区有未完成的合并（{count} 个冲突文件）。',
         'merge.openMain': '打开主工作区',
         'merge.abort': '放弃合并',
+        'merge.continue': '已解决，继续合并',
+        'action.finishBatch': '完成已合并（{count}）',
+        'action.confirmFinishBatch': '全部完成',
+        'batch.title': '完成 {count} 个已合并的 worktree？',
+        'batch.body': '只处理干净且已合并的检出：删除目录、分支和侧边栏条目；这一步不会合并任何内容。',
+        'notice.mergeContinued': '合并已完成。',
+        'notice.mergeNoPending': '没有进行中的合并。',
+        'notice.batch': '已完成 {count} 个，跳过 {skipped} 个。',
         'notice.aborted': '已放弃合并。',
         'notice.nothingToAbort': '没有进行中的合并。',
         'finish.title': '完成 {branch}？',
@@ -773,6 +789,7 @@ window.__ModuleLoader__.load({
         const [notice, setNotice] = React.useState(null)
         const [restoring, setRestoring] = React.useState(false)
         const [picking, setPicking] = React.useState(false)
+        const [batchRepo, setBatchRepo] = React.useState(null)
         const [name, setName] = React.useState('')
         const [fromRef, setFromRef] = React.useState('')
         const [touched, setTouched] = React.useState(false)
@@ -945,6 +962,22 @@ window.__ModuleLoader__.load({
           const bridge = typeof globalThis === 'undefined' ? undefined : globalThis.__DSH_DIRECTORY_PICKER__
           if (bridge && typeof bridge.pick === 'function') return bridge.pick()
           return ctx.uiWorkspace.pickDirectory()
+        }
+
+        async function continueMerge(workspaceId) {
+          const result = await run('/continue-merge', { workspaceId })
+          if (!result) return
+          notify({ kind: 'ok', text: result.merged ? t('notice.mergeContinued') : t('notice.mergeNoPending') })
+        }
+
+        async function finishBatch(workspaceId) {
+          const result = await run('/finish-batch', { workspaceId })
+          setBatchRepo(null)
+          if (!result) return
+          notify({
+            kind: 'ok',
+            text: t('notice.batch', { count: result.finished.length, skipped: result.skipped.length }),
+          })
         }
 
         async function pruneRepo(workspaceId) {
@@ -1235,6 +1268,21 @@ window.__ModuleLoader__.load({
                       )
                     }
                     chips.push(h('span', { key: 'count', className: 'dshwt-chip plain' }, `${list.length} worktree`))
+                    const ready = repo.worktrees.filter((worktree) => worktree.inPool && worktree.branch && worktree.merged && worktree.dirty === 0).length
+                    if (ready > 0) {
+                      chips.push(
+                        h(
+                          'button',
+                          {
+                            key: 'finish-batch',
+                            className: 'dshwt-btn ghost',
+                            disabled: busy,
+                            onClick: () => setBatchRepo(repo.id),
+                          },
+                          t('action.finishBatch', { count: ready }),
+                        ),
+                      )
+                    }
                     if (repo.prunable > 0) {
                       chips.push(
                         h(
@@ -1250,6 +1298,26 @@ window.__ModuleLoader__.load({
                     return h('div', { className: 'dshwt-head-chips' }, chips)
                   })(),
                 ),
+                batchRepo === repo.id
+                  ? h(
+                      'div',
+                      { className: 'dshwt-confirm', role: 'group', 'aria-label': t('batch.title', { count: 1 }) },
+                      h(
+                        'p',
+                        null,
+                        t('batch.title', {
+                          count: repo.worktrees.filter((worktree) => worktree.inPool && worktree.branch && worktree.merged && worktree.dirty === 0).length,
+                        }),
+                      ),
+                      h('p', { className: 'dshwt-sub' }, t('batch.body')),
+                      h(
+                        'div',
+                        { className: 'dshwt-row' },
+                        h('button', { className: 'dshwt-btn danger', disabled: busy, onClick: () => finishBatch(repo.id) }, t('action.confirmFinishBatch')),
+                        h('button', { className: 'dshwt-btn ghost', onClick: () => setBatchRepo(null) }, t('action.cancel')),
+                      ),
+                    )
+                  : null,
                 repo.merging
                   ? h(
                       'div',
@@ -1259,6 +1327,7 @@ window.__ModuleLoader__.load({
                         'div',
                         { className: 'dshwt-row' },
                         h('button', { className: 'dshwt-btn primary', disabled: busy, onClick: () => openWorkspace(repo.id) }, t('merge.openMain')),
+                        h('button', { className: 'dshwt-btn', disabled: busy, onClick: () => continueMerge(repo.id) }, t('merge.continue')),
                         h('button', { className: 'dshwt-btn danger', disabled: busy, onClick: () => abortMerge(repo.id) }, t('merge.abort')),
                       ),
                     )
