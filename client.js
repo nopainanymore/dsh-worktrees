@@ -84,9 +84,13 @@ window.__ModuleLoader__.load({
         'state.dirty': 'uncommitted',
         'state.merged': 'merged',
         'state.unregistered': 'not in sidebar',
+        'state.notDefault': 'not default',
         'state.detached': 'detached',
         'state.ahead': '{count} ahead',
         'state.behind': '{count} behind',
+        'repo.branch': 'The main checkout branch — merges land here',
+        'repo.upstreamDetail': 'Against {upstream}: {ahead} ahead, {behind} behind',
+        'repo.notDefault': 'The default branch is {default}.',
         'state.sessions': '{count} sessions',
         'state.sessions.one': '1 session',
         'loading.title': 'Loading worktrees…',
@@ -174,9 +178,13 @@ window.__ModuleLoader__.load({
         'state.dirty': '有未提交改动',
         'state.merged': '已合并',
         'state.unregistered': '未加入侧边栏',
+        'state.notDefault': '非默认分支',
         'state.detached': '游离 HEAD',
         'state.ahead': '领先 {count}',
         'state.behind': '落后 {count}',
+        'repo.branch': '主检出所在分支，合并会进入这里',
+        'repo.upstreamDetail': '相对 {upstream}：领先 {ahead}，落后 {behind}',
+        'repo.notDefault': '默认分支是 {default}。',
         'state.sessions': '{count} 个会话',
         'state.sessions.one': '1 个会话',
         'loading.title': '正在加载 worktree…',
@@ -284,7 +292,8 @@ window.__ModuleLoader__.load({
 .dshwt-btn.link{background:none;border:0;padding:2px 0;color:var(--dsw-alias-label-secondary);text-decoration:underline;text-underline-offset:3px}
 .dshwt-btn.link:hover{color:var(--dsw-alias-label-primary)}
 .dshwt-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow:visible;margin-bottom:14px}
-.dshwt-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2);border-radius:12px 12px 0 0}
+.dshwt-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 14px;background:var(--dsw-alias-bg-layer-2);border-radius:12px 12px 0 0}
+.dshwt-head-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .dshwt-card-title{margin:0;font-weight:600;font-size:13px}
 .dshwt-repo-toggle{display:inline-flex;align-items:center;gap:6px;appearance:none;background:none;border:0;padding:0;margin:0;font:inherit;font-weight:600;font-size:13px;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:5px}
 .dshwt-repo-toggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:3px}
@@ -1008,7 +1017,38 @@ window.__ModuleLoader__.load({
                     ),
                     h('div', { className: 'dshwt-card-path', title: repo.path }, repo.path),
                   ),
-                  h('span', { className: 'dshwt-chip plain' }, `${list.length} worktree`),
+                  (() => {
+                    const chips = []
+                    chips.push(
+                      h(
+                        'span',
+                        {
+                          key: 'branch',
+                          className: 'dshwt-chip plain',
+                          title: t('repo.branch'),
+                        },
+                        repo.branch || t('state.detached'),
+                      ),
+                    )
+                    const upstreamDetail = t('repo.upstreamDetail', {
+                      upstream: repo.upstream || '',
+                      ahead: repo.aheadUpstream || 0,
+                      behind: repo.behindUpstream || 0,
+                    })
+                    if (repo.aheadUpstream > 0) chips.push(h('span', { key: 'up-ahead', className: 'dshwt-chip', title: upstreamDetail }, t('state.ahead', { count: repo.aheadUpstream })))
+                    if (repo.behindUpstream > 0) chips.push(h('span', { key: 'up-behind', className: 'dshwt-chip', title: upstreamDetail }, t('state.behind', { count: repo.behindUpstream })))
+                    if (repo.onDefaultBranch === false && repo.defaultBranch) {
+                      chips.push(
+                        h(
+                          'span',
+                          { key: 'not-default', className: 'dshwt-chip', 'data-state': 'warn', title: t('repo.notDefault', { default: repo.defaultBranch }) },
+                          t('state.notDefault'),
+                        ),
+                      )
+                    }
+                    chips.push(h('span', { key: 'count', className: 'dshwt-chip plain' }, `${list.length} worktree`))
+                    return h('div', { className: 'dshwt-head-chips' }, chips)
+                  })(),
                 ),
                 h(
                   'ul',
