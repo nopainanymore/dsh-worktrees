@@ -880,7 +880,11 @@ export function apply(ctx, config) {
     const pushed = await pushWorktree(body)
     if (pushed.ok === false) return pushed
 
-    const args = ['pr', 'create', '--head', entry.branch, '--title', title, '--body', `Created from worktree ${entry.branch}.`]
+    const bodyText =
+      typeof body.body === 'string' && body.body.trim().length > 0
+        ? body.body.trim()
+        : `Created from worktree ${entry.branch}.`
+    const args = ['pr', 'create', '--head', entry.branch, '--title', title, '--body', bodyText]
     if (base) args.push('--base', base)
     const created = await runCommand('gh', args, entry.path)
     if (created.missing) {
@@ -1219,19 +1223,20 @@ export function apply(ctx, config) {
   const worktreeTool = {
     name: 'worktree',
     description:
-      'Manage Git worktrees of the current repository. list shows every worktree with its branch, divergence and uncommitted state; create makes a new branch and checkout under .agents/worktrees; sync rebases a worktree onto the current branch of the main checkout; merge brings a worktree branch back into the main checkout (conflicts are left in the main workspace); prune drops git records whose checkout directory is gone. Removing a worktree directory or deleting a branch is only available in the Worktrees panel.',
+      'Manage Git worktrees of the current repository. list shows every worktree with its branch, divergence and uncommitted state; create makes a new branch and checkout under .agents/worktrees; sync rebases a worktree onto the current branch of the main checkout; merge brings a worktree branch back into the main checkout (conflicts are left in the main workspace); prune drops git records whose checkout directory is gone; finish merges (if needed), removes the checkout, deletes its branch and unregisters it, and requires confirm: true.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'create', 'sync', 'merge', 'prune'],
+          enum: ['list', 'create', 'sync', 'merge', 'prune', 'finish'],
           description: 'list | create | sync | merge',
         },
         name: { type: 'string', description: 'create: worktree and branch name' },
         from: { type: 'string', description: 'create: base ref, default HEAD' },
-        path: { type: 'string', description: 'sync/merge: worktree path, absolute or relative to the session directory' },
+        path: { type: 'string', description: 'sync/merge/finish: worktree path, absolute or relative to the session directory' },
+        confirm: { type: 'boolean', description: 'finish: must be true; without it the tool only explains what would be removed' },
       },
       required: ['action'],
     },
@@ -1288,6 +1293,23 @@ ${rows.join('\n')}` : `No worktrees in ${info.self}`,
 
       if (typeof args.path !== 'string' || args.path.length === 0) throw new Error(`${args.action} requires path`)
       const target = isAbsolute(args.path) ? args.path : join(cwd, args.path)
+
+      if (args.action === 'finish') {
+        if (args.confirm !== true) {
+          return {
+            ok: false,
+            message: `Finishing ${args.path} merges it (if needed), deletes the checkout directory, deletes its branch and removes it from the sidebar. Call again with confirm: true to proceed.`,
+          }
+        }
+        const finished = await finishWorktree({ path: target })
+        if (finished.ok === false) {
+          return { ok: false, message: `${finished.message}${finished.conflicts && finished.conflicts.length ? `\n${finished.conflicts.join('\n')}` : ''}` }
+        }
+        return {
+          ok: true,
+          message: `Finished ${finished.branch}: ${finished.merged ? 'merged, ' : ''}removed${finished.branchDeleted ? ', branch deleted' : ', branch kept'}${finished.branchError ? ` (${finished.branchError})` : ''}`,
+        }
+      }
 
       if (args.action === 'sync') {
         const result = await syncWorktree({ path: target })

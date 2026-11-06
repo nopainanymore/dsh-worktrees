@@ -16,7 +16,8 @@
 - 「完成并清理」一步完成合并 → 删除工作树目录 → 删除分支 → 移出侧边栏；任一步的守卫不通过都不会动任何东西。
 - 冲突横幅里除「打开主工作区 / 放弃合并」外还有「已解决，继续合并」（`git commit --no-edit` 收尾）。
 - 仓库标题栏对「已合并且干净」的工作树提供「完成已合并（N）」，一次清理，跳过未合并/脏的。
-- 有 `origin` 时行内有「推送分支」和「创建 PR…」（`gh pr create`，先自动 push）。
+- 有 `origin` 时行内有「推送分支」和「创建 PR…」：PR 确认区可编辑标题与正文，默认标题是分支名，
+  正文是「来自 worktree <branch>」；创建时先自动 push，再 `gh pr create`。
 - 检出目录被删、git 仍留记录时，仓库标题栏显示「N 个失效条目」+「清理」（`git worktree prune`，
   同时注销对应的工作区注册）；已经 prune 掉、只剩注册的情况由面板顶部的失效提示 + 「清理」修复。
 - 移除确认会写明目录；已合并的分支是否一并删除由勾选框决定（默认关闭）。
@@ -36,10 +37,11 @@ Host 侧注册了一个 `worktree` 工具（模型可见），参数：
 
 | 参数 | 说明 |
 |---|---|
-| `action` | `list` / `create` / `sync` / `merge` / `prune` |
+| `action` | `list` / `create` / `sync` / `merge` / `prune` / `finish` |
 | `name` | create：工作树与分支名 |
 | `from` | create：基线，默认 HEAD |
-| `path` | sync / merge：工作树路径（绝对或相对当前会话目录） |
+| `path` | sync / merge / finish：工作树路径（绝对或相对当前会话目录） |
+| `confirm` | finish：必须为 `true`；不带时只返回将要删除什么的说明 |
 
 `list` 会输出每棵工作树的分支、领先/落后和未提交状态。`create` 要求当前仓库已是注册工作区；
 `sync` / `merge` 与面板调用同一套 Host 逻辑（冲突时同样把合并留在主工作区）。

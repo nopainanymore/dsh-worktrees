@@ -111,6 +111,9 @@ window.__ModuleLoader__.load({
         'state.prunable': '{count} stale',
         'repo.prunable': 'The checkout directory is gone but git still records it.',
         'pr.title': 'Create a pull request for {branch}?',
+        'pr.titleLabel': 'Title',
+        'pr.bodyLabel': 'Description',
+        'pr.defaultBody': 'Created from worktree {branch}.',
         'pr.body': 'Pushes the branch to origin, then runs gh pr create against {base}.',
         'notice.syncNothing': 'Already up to date with the main checkout.',
         'remove.title': 'Remove worktree {branch}?',
@@ -245,6 +248,9 @@ window.__ModuleLoader__.load({
         'state.prunable': '{count} 个失效条目',
         'repo.prunable': '检出目录已不存在，但 git 仍保留记录。',
         'pr.title': '为 {branch} 创建 PR？',
+        'pr.titleLabel': '标题',
+        'pr.bodyLabel': '正文',
+        'pr.defaultBody': '来自 worktree {branch}。',
         'pr.body': '先把分支推送到 origin，再用 gh pr create 对 {base} 发起 PR。',
         'notice.syncNothing': '已经和主工作区一致，无需同步。',
         'remove.title': '移除 worktree {branch}？',
@@ -417,6 +423,7 @@ window.__ModuleLoader__.load({
 .dshwt-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px}
 .dshwt-search{flex:1 1 auto;min-width:0}
 .dshwt-sort{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.dshwt-textarea{min-height:64px;resize:vertical;font-family:inherit;line-height:1.5}
 .dshwt-kbd{font:inherit;font-size:10px;line-height:1.4;border:1px solid rgba(255,255,255,.45);border-radius:4px;padding:0 4px;margin-left:7px;opacity:.85}
 .dshwt-input{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);border-radius:7px;padding:5px 9px;font-size:12px;font-family:inherit;min-width:180px}
 .dshwt-input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
@@ -543,6 +550,8 @@ window.__ModuleLoader__.load({
         const { repo, worktree, busy, run, notify, openWorkspace } = props
         const [confirm, setConfirm] = React.useState(null)
         const [deleteBranch, setDeleteBranch] = React.useState(false)
+        const [prTitle, setPrTitle] = React.useState('')
+        const [prBody, setPrBody] = React.useState('')
         const confirmRef = React.useRef(null)
 
         React.useEffect(() => {
@@ -573,7 +582,15 @@ window.__ModuleLoader__.load({
         }
         if (worktree.branch && repo.hasRemote) {
           items.push({ id: 'push', label: t('action.push'), onSelect: push })
-          items.push({ id: 'pr', label: t('action.pullRequest'), onSelect: () => setConfirm('pr') })
+          items.push({
+            id: 'pr',
+            label: t('action.pullRequest'),
+            onSelect: () => {
+              setPrTitle(worktree.branch || '')
+              setPrBody(t('pr.defaultBody', { branch: worktree.branch }))
+              setConfirm('pr')
+            },
+          })
         }
         if (worktree.inPool && worktree.behind > 0) {
           items.push({ id: 'sync', label: t('action.sync'), onSelect: () => setConfirm('sync') })
@@ -598,7 +615,11 @@ window.__ModuleLoader__.load({
         }
 
         async function createPr() {
-          const result = await run('/pr', { path: worktree.path })
+          const result = await run('/pr', {
+            path: worktree.path,
+            title: prTitle.trim() || worktree.branch,
+            body: prBody.trim(),
+          })
           setConfirm(null)
           if (!result) return
           notify({ kind: 'ok', text: t('notice.prCreated', { url: result.url || worktree.branch }) })
@@ -712,6 +733,29 @@ window.__ModuleLoader__.load({
                 { className: 'dshwt-confirm', ref: confirmRef, role: 'group', 'aria-label': t('pr.title', { branch: worktree.branch }) },
                 h('p', null, t('pr.title', { branch: worktree.branch })),
                 h('p', { className: 'dshwt-sub' }, t('pr.body', { base: repo.defaultBranch || repo.branch || 'origin' })),
+                h(
+                  'label',
+                  { className: 'dshwt-field' },
+                  h('span', { className: 'dshwt-field-label' }, t('pr.titleLabel')),
+                  h('input', {
+                    className: 'dshwt-input',
+                    value: prTitle,
+                    disabled: busy,
+                    onChange: (event) => setPrTitle(event.target.value),
+                  }),
+                ),
+                h(
+                  'label',
+                  { className: 'dshwt-field' },
+                  h('span', { className: 'dshwt-field-label' }, t('pr.bodyLabel')),
+                  h('textarea', {
+                    className: 'dshwt-input dshwt-textarea',
+                    rows: 3,
+                    value: prBody,
+                    disabled: busy,
+                    onChange: (event) => setPrBody(event.target.value),
+                  }),
+                ),
                 h(
                   'div',
                   { className: 'dshwt-row' },
