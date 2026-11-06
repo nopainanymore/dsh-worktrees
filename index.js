@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process'
 import { copyFile, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 
 const API_PREFIX = '/dsh-worktrees/api'
 const POOL_DIR = '.agents/worktrees'
@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS = {
 }
 const SESSION_FILE_NAME = 'worktrees'
 
-export const inject = ['webServer', 'workspaceRegistry']
+export const inject = ['webServer', 'workspaceRegistry', 'tools', 'workingDirectory']
 
 /* ------------------------------------------------------------------ */
 /* settings                                                            */
@@ -993,5 +993,91 @@ export function apply(ctx, config) {
     }
   }
 
+  /* ------------------------------- tool -------------------------------- */
+
+  /**
+   * The model-facing half of the panel: the same operations, resolved from the
+   * calling session's directory. Destructive cleanup stays in the UI so a model
+   * cannot delete a checkout on its own.
+   */
+  const worktreeTool = {
+    name: 'worktree',
+    description:
+      'Manage Git worktrees of the current repository. list shows every worktree with its branch, divergence and uncommitted state; create makes a new branch and checkout under .agents/worktrees; sync rebases a worktree onto the current branch of the main checkout; merge brings a worktree branch back into the main checkout (conflicts are left in the main workspace). Cleanup (removing a worktree directory or deleting a branch) is only available in the Worktrees panel.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'create', 'sync', 'merge'],
+          description: 'list | create | sync | merge',
+        },
+        name: { type: 'string', description: 'create: worktree and branch name' },
+        from: { type: 'string', description: 'create: base ref, default HEAD' },
+        path: { type: 'string', description: 'sync/merge: worktree path, absolute or relative to the session directory' },
+      },
+      required: ['action'],
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean' },
+          message: { type: 'string' },
+        },
+        required: ['ok', 'message'],
+      },
+      render: (_args, value) => [{ type: 'text', text: value.message }],
+    },
+    async execute(args, exec) {
+      if (!exec.agent) throw new Error('worktree requires an owning agent session')
+      const cwd = ctx.workingDirectory.get(exec.agent.session)
+      const info = await mainRootOf(cwd)
+      if (!info) throw new Error(`not a Git repository: ${cwd}`)
+
+      if (args.action === 'list') {
+        const rows = []
+        for (const entry of info.entries.slice(1)) {
+          const dirty = await dirtyStatus(entry.path)
+          const counts = entry.branch ? await aheadBehind(info.self, entry.branch) : null
+          const state = [
+            counts ? `${counts.ahead} ahead / ${counts.behind} behind` : 'detached',
+            dirty.count > 0 ? `${dirty.count} uncommitted` : 'clean',
+          ].join(', ')
+          rows.push(`- ${entry.branch || '(detached)'} — ${entry.path} (${state})`)
+        }
+        return {
+          ok: true,
+          message: rows.length > 0 ? `Worktrees of ${info.self}:
+${rows.join('\n')}` : `No worktrees in ${info.self}`,
+        }
+      }
+
+      if (args.action === 'create') {
+        if (typeof args.name !== 'string' || args.name.trim().length === 0) throw new Error('create requires name')
+        const workspaceId = await workspaceIdForPath(info.self)
+        if (!workspaceId) throw new Error(`${info.self} is not a registered workspace; add it in the Worktrees panel first`)
+        const created = await createWorktree({ workspaceId, name: args.name, from: args.from })
+        return { ok: true, message: `Created ${created.branch} at ${created.path}` }
+      }
+
+      if (typeof args.path !== 'string' || args.path.length === 0) throw new Error(`${args.action} requires path`)
+      const target = isAbsolute(args.path) ? args.path : join(cwd, args.path)
+
+      if (args.action === 'sync') {
+        const result = await syncWorktree({ path: target })
+        if (result.ok === false) return { ok: false, message: `${result.message}${result.conflicts && result.conflicts.length ? `\n${result.conflicts.join('\n')}` : ''}` }
+        return { ok: true, message: result.synced ? `Rebased ${result.branch} onto ${result.baseCommit.slice(0, 10)}` : `${result.branch} is already up to date` }
+      }
+
+      const result = await mergeWorktree({ path: target })
+      if (result.ok === false) return { ok: false, message: `${result.message}${result.conflicts && result.conflicts.length ? `\n${result.conflicts.join('\n')}` : ''}` }
+      return { ok: true, message: result.alreadyMerged ? `${result.branch} is already merged` : `Merged ${result.branch} into the main checkout` }
+    },
+  }
+
+  ctx.effect(() => ctx.tools.register(worktreeTool), 'worktrees: worktree tool')
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: API_PREFIX, handler }), 'worktrees: api route')
 }

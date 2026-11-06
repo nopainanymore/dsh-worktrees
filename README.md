@@ -25,6 +25,22 @@
 - 顶部「添加仓库」直接调用系统目录选择器，把 Git 仓库注册成工作区（走官方 `workspaceRegistry`），
   不用切回侧边栏；选到仓库子目录时会自动落到仓库根，已注册则返回现有工作区。
 
+## 给 Agent 的工具
+
+Host 侧注册了一个 `worktree` 工具（模型可见），参数：
+
+| 参数 | 说明 |
+|---|---|
+| `action` | `list` / `create` / `sync` / `merge` |
+| `name` | create：工作树与分支名 |
+| `from` | create：基线，默认 HEAD |
+| `path` | sync / merge：工作树路径（绝对或相对当前会话目录） |
+
+`list` 会输出每棵工作树的分支、领先/落后和未提交状态。`create` 要求当前仓库已是注册工作区；
+`sync` / `merge` 与面板调用同一套 Host 逻辑（冲突时同样把合并留在主工作区）。
+
+**清理类动作（移除目录、删分支）不在工具里**——只保留在面板中，避免模型自行删除检出。
+
 ## 两级菜单从哪来
 
 DSH 自带的 Workspace 浏览器支持 **View options → Group by → Workspace Tree**：已注册的工作区会按路径
