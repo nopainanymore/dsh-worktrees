@@ -104,6 +104,8 @@ window.__ModuleLoader__.load({
         'notice.pushed': 'Pushed {branch} to origin.',
         'notice.prCreated': 'Pull request created: {url}',
         'notice.pruned': 'Pruned stale worktree entries.',
+        'notice.reconciled': 'Unregistered {count} stale workspaces.',
+        'orphans.body': '{count} worktree workspaces point at a directory that no longer exists.',
         'notice.createdSetup': 'Created {branch} and ran the setup command.',
         'notice.setupFailed': 'Created {branch}, but the setup command failed: {error}',
         'state.prunable': '{count} stale',
@@ -236,6 +238,8 @@ window.__ModuleLoader__.load({
         'notice.pushed': '已把 {branch} 推送到 origin。',
         'notice.prCreated': '已创建 PR：{url}',
         'notice.pruned': '已清理失效的工作树条目。',
+        'notice.reconciled': '已注销 {count} 个失效工作区。',
+        'orphans.body': '{count} 个 worktree 工作区指向的目录已不存在。',
         'notice.createdSetup': '已创建 {branch} 并执行了 setup 命令。',
         'notice.setupFailed': '已创建 {branch}，但 setup 命令失败：{error}',
         'state.prunable': '{count} 个失效条目',
@@ -980,6 +984,11 @@ window.__ModuleLoader__.load({
           })
         }
 
+        async function reconcile() {
+          const result = await run('/reconcile', {})
+          if (result) notify({ kind: 'ok', text: t('notice.reconciled', { count: result.removed.length }) })
+        }
+
         async function pruneRepo(workspaceId) {
           const result = await run('/prune', { workspaceId })
           if (result) notify({ kind: 'ok', text: t('notice.pruned') })
@@ -1052,6 +1061,17 @@ window.__ModuleLoader__.load({
               notice.action
                 ? h('button', { className: 'dshwt-btn', onClick: notice.action.onClick }, notice.action.label)
                 : null,
+            ),
+          )
+        }
+
+        if (data && Array.isArray(data.orphans) && data.orphans.length > 0) {
+          body.push(
+            h(
+              'div',
+              { key: 'orphans', className: 'dshwt-notice', role: 'status' },
+              h('div', { style: { flex: '1' } }, t('orphans.body', { count: data.orphans.length })),
+              h('button', { className: 'dshwt-btn', disabled: busy, onClick: reconcile }, t('action.prune')),
             ),
           )
         }

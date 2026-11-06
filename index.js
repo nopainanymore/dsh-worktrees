@@ -506,7 +506,13 @@ export function apply(ctx, config) {
         return null
       }
     })
-    return { repos: listed.filter(Boolean), settings: await settings(), poolDir: POOL_DIR }
+    const orphans = []
+    for (const workspace of registeredWorkspaces()) {
+      if (!isManagedPath(workspace.path)) continue
+      if (await isDirectory(workspace.path)) continue
+      orphans.push({ id: workspace.id, title: workspace.title, path: workspace.path })
+    }
+    return { repos: listed.filter(Boolean), settings: await settings(), poolDir: POOL_DIR, orphans }
   }
 
   async function buildTree() {
@@ -887,15 +893,38 @@ export function apply(ctx, config) {
     return { ok: true, branch: entry.branch, base, url, output: created.stdout.slice(0, 2000) }
   }
 
+  async function reconcileWorkspaces() {
+    const removed = []
+    for (const workspace of registeredWorkspaces()) {
+      if (!isManagedPath(workspace.path)) continue
+      if (await isDirectory(workspace.path)) continue
+      await ctx.workspaceRegistry.delete(workspace.id)
+      removed.push(workspace.path)
+    }
+    invalidateTree()
+    return { ok: true, removed }
+  }
+
   async function pruneWorktrees(body) {
     const workspace = workspaceById(body.workspaceId)
     if (!workspace) throw httpError(404, '工作区不存在')
     const info = await mainRootOf(workspace.path)
     if (!info || info.linked) throw httpError(400, '该工作区不是主检出')
+    // A pruned record usually still has a workspace registration pointing at
+    // the deleted checkout; drop those in the same gesture.
+    const entries = parseWorktreeList((await git(info.self, ['worktree', 'list', '--porcelain'])).stdout)
+    const unregistered = []
+    for (const entry of entries.filter((candidate) => candidate.prunable)) {
+      const workspaceId = await workspaceIdForPath(entry.path)
+      if (workspaceId) {
+        await ctx.workspaceRegistry.delete(workspaceId)
+        unregistered.push(entry.path)
+      }
+    }
     const pruned = await runCommand(await resolveGit(), ['worktree', 'prune', '-v'], info.self)
     invalidateTree()
     if (!pruned.ok) return { ok: false, message: (pruned.stderr || 'git worktree prune failed').slice(0, 2000) }
-    return { ok: true, output: (pruned.stdout + pruned.stderr).slice(0, 2000) }
+    return { ok: true, output: (pruned.stdout + pruned.stderr).slice(0, 2000), unregistered }
   }
 
   async function abortMerge(body) {
@@ -1135,6 +1164,10 @@ export function apply(ctx, config) {
         }
         if (route === '/pr') {
           send(res, 200, await openPullRequest(body))
+          return
+        }
+        if (route === '/reconcile') {
+          send(res, 200, await reconcileWorkspaces())
           return
         }
         if (route === '/prune') {
